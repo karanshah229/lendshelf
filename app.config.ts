@@ -1,0 +1,81 @@
+import type { ConfigContext, ExpoConfig } from 'expo/config';
+
+const APP_ID = 'com.lendshelf.app';
+
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  ...config,
+  name: 'LendShelf',
+  slug: 'lendshelf',
+  scheme: 'lendshelf',
+  version: '0.1.0',
+  orientation: 'portrait',
+  icon: './assets/images/icon.png',
+  userInterfaceStyle: 'automatic',
+  ios: {
+    bundleIdentifier: APP_ID,
+    supportsTablet: false,
+    // Placeholder for the `demo-lendshelf` emulator project. Replace with the real file
+    // downloaded from the Firebase console before building against a real project.
+    googleServicesFile: './GoogleService-Info.plist',
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+    },
+  },
+  android: {
+    package: APP_ID,
+    // Placeholder for the `demo-lendshelf` emulator project (see google-services.json).
+    googleServicesFile: './google-services.json',
+    adaptiveIcon: {
+      backgroundColor: '#FFFFFF',
+      foregroundImage: './assets/images/android-icon-foreground.png',
+      backgroundImage: './assets/images/android-icon-background.png',
+      monochromeImage: './assets/images/android-icon-monochrome.png',
+    },
+    predictiveBackGestureEnabled: false,
+  },
+  web: {
+    output: 'single',
+    favicon: './assets/images/favicon.png',
+  },
+  plugins: [
+    'expo-router',
+    [
+      'expo-splash-screen',
+      {
+        backgroundColor: '#FFFFFF',
+        image: './assets/images/splash-icon.png',
+        imageWidth: 76,
+        dark: { backgroundColor: '#0A0A0A', image: './assets/images/splash-icon.png' },
+      },
+    ],
+    '@react-native-firebase/app',
+    '@react-native-firebase/auth',
+    [
+      'expo-build-properties',
+      {
+        // React Native Firebase v27 uses the SPM-only Firebase Apple SDK 13+, which requires
+        // dynamic frameworks (static linkage makes `pod install` fail).
+        ios: { useFrameworks: 'dynamic' },
+        android: {
+          // The Auth/Firestore emulators run over plain HTTP on 10.0.2.2 in development.
+          usesCleartextTraffic: true,
+        },
+      },
+    ],
+    'expo-localization',
+    [
+      'expo-contacts',
+      {
+        contactsPermission:
+          'LendShelf matches the phone numbers in your contacts to show you books your friends and family are sharing. Your address book is never stored.',
+      },
+    ],
+    'expo-notifications',
+  ],
+  experiments: {
+    typedRoutes: true,
+  },
+  extra: {
+    firebaseProjectId: 'demo-lendshelf',
+  },
+});
