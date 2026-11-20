@@ -153,7 +153,7 @@ beforeAll(async () => {
     projectId: PROJECT_ID,
     firestore: {
       rules: readFileSync(resolve(process.cwd(), "../firestore.rules"), "utf8"),
-      ...hostPort("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080"),
+      ...hostPort("FIRESTORE_EMULATOR_HOST", "127.0.0.1:18080"),
     },
   });
 });
@@ -266,9 +266,15 @@ describe("users", () => {
 });
 
 describe("profiles", () => {
-  it("readable by any signed-in user, not anonymous", async () => {
+  it("readable by id by any signed-in user, not anonymous", async () => {
     await assertSucceeds(getDoc(doc(as(CAROL), "profiles", ALICE)));
     await assertFails(getDoc(doc(anon(), "profiles", ALICE)));
+  });
+
+  it("can't be listed (no enumerating everyone's names)", async () => {
+    await assertFails(getDocs(collection(as(CAROL), "profiles")));
+    await assertFails(getDocs(collection(as(ALICE), "profiles")));
+    await assertFails(getDocs(query(collection(as(BOB), "profiles"), where("name", "==", "Alice"))));
   });
 
   it("own profile with valid fields only", async () => {
@@ -385,9 +391,9 @@ describe("items", () => {
     await assertFails(setDoc(doc(as(ALICE), "items", "n1"), newItem({ loanState: "lent" })));
     await assertFails(setDoc(doc(as(ALICE), "items", "n2"), newItem({ activeLoanId: "l1" })));
     await assertFails(setDoc(doc(as(ALICE), "items", "n3"), newItem({ dueDate: t0 })));
-    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { loanState: "lent" }));
-    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { activeLoanId: "x" }));
-    await assertFails(updateDoc(doc(as(ALICE), "items", "iLent"), { loanState: "available", activeLoanId: null, dueDate: null }));
+    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { loanState: "lent", updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { activeLoanId: "x", updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as(ALICE), "items", "iLent"), { loanState: "available", activeLoanId: null, dueDate: null, updatedAt: serverTimestamp() }));
   });
 
   it("sharedWithContacts must equal shelf.isPublic && visibility != hidden", async () => {
@@ -395,12 +401,12 @@ describe("items", () => {
     await assertFails(setDoc(doc(as(ALICE), "items", "n2"), newItem({ visibility: "hidden", sharedWithContacts: true })));
     await assertFails(setDoc(doc(as(ALICE), "items", "n3"), newItem({ shelfId: "aPrivate", sharedWithContacts: true })));
     // Updates are checked too.
-    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { visibility: "hidden" }));
-    await assertSucceeds(updateDoc(doc(as(ALICE), "items", "i1"), { visibility: "hidden", sharedWithContacts: false }));
-    await assertSucceeds(updateDoc(doc(as(ALICE), "items", "i1"), { visibility: "visible", sharedWithContacts: true }));
+    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { visibility: "hidden", updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(as(ALICE), "items", "i1"), { visibility: "hidden", sharedWithContacts: false, updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(as(ALICE), "items", "i1"), { visibility: "visible", sharedWithContacts: true, updatedAt: serverTimestamp() }));
     // Moving to a private shelf must clear sharedWithContacts.
-    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { shelfId: "aPrivate" }));
-    await assertSucceeds(updateDoc(doc(as(ALICE), "items", "i1"), { shelfId: "aPrivate", sharedWithContacts: false }));
+    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { shelfId: "aPrivate", updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(as(ALICE), "items", "i1"), { shelfId: "aPrivate", sharedWithContacts: false, updatedAt: serverTimestamp() }));
   });
 
   it("shelf created in the same batch counts (getAfter)", async () => {
@@ -428,13 +434,174 @@ describe("items", () => {
     await assertSucceeds(setDoc(doc(as(ALICE), "items", "n1"), newItem({ workId: CUSTOM, isCustom: true })));
     await assertFails(setDoc(doc(as(ALICE), "items", "n2"), newItem({ workId: CUSTOM, isCustom: false })));
     await assertFails(setDoc(doc(as(ALICE), "items", "n3"), newItem({ workId: "custom_carol1", isCustom: true })));
-    await assertFails(setDoc(doc(as(ALICE), "items", "n4"), newItem({ workId: "ol_DOESNOTEXISTW" })));
+    // Catalogue ids (ol_/gb_) need no document read, but isCustom must be false;
+    // any other id must be an existing custom work of mine.
+    await assertSucceeds(setDoc(doc(as(ALICE), "items", "n4"), newItem({ workId: "gb_abcd1234" })));
+    await assertFails(setDoc(doc(as(ALICE), "items", "n5"), newItem({ workId: "ol_OL1W", isCustom: true })));
+    await assertFails(setDoc(doc(as(ALICE), "items", "n6"), newItem({ workId: "custom_missing", isCustom: true })));
+    await assertFails(setDoc(doc(as(ALICE), "items", "n7"), newItem({ workId: "something_else" })));
+    await assertFails(setDoc(doc(as(ALICE), "items", "n8"), newItem({ workId: "something_else", isCustom: true })));
   });
 
   it("can't delete a lent copy; can delete an available one", async () => {
     await assertFails(deleteDoc(doc(as(ALICE), "items", "iLent")));
     await assertSucceeds(deleteDoc(doc(as(ALICE), "items", "i1")));
     await assertFails(deleteDoc(doc(as(BOB), "items", "i2")));
+  });
+
+  it("timestamps must be serverTimestamp()", async () => {
+    await assertFails(setDoc(doc(as(ALICE), "items", "n1"), newItem({ createdAt: t0 })));
+    await assertFails(setDoc(doc(as(ALICE), "items", "n2"), newItem({ updatedAt: t0 })));
+    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { language: "fr" }));
+    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { language: "fr", updatedAt: t0 }));
+    await assertSucceeds(updateDoc(doc(as(ALICE), "items", "i1"), { language: "fr", updatedAt: serverTimestamp() }));
+  });
+});
+
+// Firestore allows at most 20 document reads (get/getAfter/exists) per batched
+// write. Each new copy reads its shelf (once per batch, cached) and, only for a
+// custom work, that work. These tests pin the batch sizes the client can rely on.
+describe("items: batch sizes (20 document-access calls per request)", () => {
+  const newItem = (o: Record<string, unknown> = {}) => item({ createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...o });
+  const customWork = () => ({
+    category: "book", source: "custom", title: "Mine", authors: ["Alice"], description: null, coverUrl: null,
+    firstPublishYear: null, isCustom: true, createdBy: ALICE, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      for (let i = 0; i < 20; i++) {
+        await setDoc(doc(db, "works", `custom_aliceB${i}`), {
+          ...customWork(), createdAt: t0, updatedAt: t0,
+        });
+      }
+    });
+  });
+
+  async function commitCopies(n: number, workIdFor: (i: number) => string, opts: { createWorks?: boolean } = {}) {
+    const db = as(ALICE);
+    const batch = writeBatch(db);
+    for (let i = 0; i < n; i++) {
+      const workId = workIdFor(i);
+      const isCustom = workId.startsWith("custom_");
+      if (opts.createWorks) batch.set(doc(db, "works", workId), customWork());
+      batch.set(doc(db, "items", `batch${n}_${i}`), newItem({ workId, isCustom }));
+    }
+    return batch.commit();
+  }
+
+  it("catalogue copies need no work read: 200 distinct works in one batch", async () => {
+    await assertSucceeds(commitCopies(200, (i) => `ol_OL${1000 + i}W`));
+  });
+
+  it("copies of existing custom works: 19 per batch is the maximum", async () => {
+    await assertSucceeds(commitCopies(19, (i) => `custom_aliceB${i}`));
+    await assertFails(commitCopies(20, (i) => `custom_aliceB${i}`));
+  });
+
+  it("new custom works written in the same batch as their copies don't count", async () => {
+    await assertSucceeds(commitCopies(30, (i) => `custom_new${i}`, { createWorks: true }));
+  });
+});
+
+describe("cover URLs (items and custom works)", () => {
+  const newItem = (coverUrl: unknown) => item({ coverUrl, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  const newWork = (coverUrl: unknown) => ({
+    category: "book", source: "custom", title: "Mine", authors: ["Alice"], description: null, coverUrl,
+    firstPublishYear: null, isCustom: true, createdBy: ALICE, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  const allowed = [
+    null,
+    "https://covers.openlibrary.org/b/id/14627509-L.jpg",
+    "https://books.google.com/books/content?id=x3qBDwAAQBAJ&printsec=frontcover&img=1&zoom=1",
+    "https://books.googleusercontent.com/books/content?id=abc",
+    "https://firebasestorage.googleapis.com/v0/b/lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
+    "http://127.0.0.1:9199/v0/b/demo-lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
+    "http://10.0.2.2:9199/v0/b/demo-lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
+    "http://localhost:9199/v0/b/demo-lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
+  ];
+  const denied = [
+    "https://evil.example.com/pixel.gif",
+    "http://books.google.com/books/content?id=x",
+    "http://covers.openlibrary.org/b/id/1-L.jpg",
+    "https://covers.openlibrary.org.evil.com/x.jpg",
+    "https://covers.openlibrary.org@evil.com/x.jpg",
+    "http://127.0.0.1.evil.com:9199/x",
+    "javascript:alert(1)",
+    "data:image/png;base64,AAAA",
+    "",
+    42,
+  ];
+
+  it("only catalogue, Storage and Storage-emulator URLs (or null)", async () => {
+    let n = 0;
+    for (const url of allowed) {
+      await assertSucceeds(setDoc(doc(as(ALICE), "items", `c${++n}`), newItem(url)));
+      await assertSucceeds(setDoc(doc(as(ALICE), "works", `custom_c${n}`), newWork(url)));
+    }
+    for (const url of denied) {
+      await assertFails(setDoc(doc(as(ALICE), "items", `c${++n}`), newItem(url)));
+      await assertFails(setDoc(doc(as(ALICE), "works", `custom_c${n}`), newWork(url)));
+    }
+    await assertFails(updateDoc(doc(as(ALICE), "items", "i1"), { coverUrl: denied[0], updatedAt: serverTimestamp() }));
+  });
+});
+
+describe("authors (items and custom works)", () => {
+  const newItem = (authors: unknown) => item({ authors, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  const newWork = (authors: unknown) => ({
+    category: "book", source: "custom", title: "Mine", authors, description: null, coverUrl: null,
+    firstPublishYear: null, isCustom: true, createdBy: ALICE, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  const names = (n: number) => Array.from({ length: n }, (_, i) => `Author ${i}`);
+
+  it("a list of up to 20 strings (each up to 300 chars)", async () => {
+    let n = 0;
+    for (const ok of [[], ["One"], names(20), ["x".repeat(300)]]) {
+      await assertSucceeds(setDoc(doc(as(ALICE), "items", `a${++n}`), newItem(ok)));
+      await assertSucceeds(setDoc(doc(as(ALICE), "works", `custom_a${n}`), newWork(ok)));
+    }
+    const bad = [
+      names(21),
+      [42],
+      ["A", { name: "B" }],
+      [...names(19), null],
+      ["x".repeat(301)],
+      "Just a string",
+    ];
+    for (const b of bad) {
+      await assertFails(setDoc(doc(as(ALICE), "items", `a${++n}`), newItem(b)));
+      await assertFails(setDoc(doc(as(ALICE), "works", `custom_a${n}`), newWork(b)));
+    }
+  });
+});
+
+describe("timestamps must be serverTimestamp()", () => {
+  it("profiles, custom works, shelves, reviews and watches", async () => {
+    await assertFails(setDoc(doc(as(BOB), "profiles", BOB), { name: "Bob", pickupNote: null, createdAt: t0, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as(ALICE), "profiles", ALICE), { name: "Alice R" }));
+    await assertFails(setDoc(doc(as(BOB), "works", "custom_bobT"), {
+      category: "book", source: "custom", title: "T", authors: [], description: null, coverUrl: null,
+      firstPublishYear: null, isCustom: true, createdBy: BOB, createdAt: t0, updatedAt: t0,
+    }));
+    await assertFails(updateDoc(doc(as(ALICE), "works", CUSTOM), { title: "New title" }));
+    await assertFails(setDoc(doc(as(BOB), "shelves", "bT"), {
+      ownerId: BOB, name: "T", isPublic: true, sortOrder: 1, createdAt: t0, updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(as(ALICE), "shelves", "aPublic"), { sortOrder: 9 }));
+    await assertFails(setDoc(doc(as(BOB), "reviews", `${WORK}_${BOB}`), review(WORK, BOB)));
+    await assertFails(updateDoc(doc(as(ALICE), "reviews", `${WORK}_${ALICE}`), { rating: 1 }));
+    await assertFails(setDoc(doc(as(BOB), "watches", `${BOB}_back_i1`), {
+      uid: BOB, type: "back", targetId: "i1", workId: WORK, title: "The Hobbit", createdAt: t0,
+    }));
+  });
+});
+
+describe("rateLimits (backend only)", () => {
+  it("clients can't read or write their quota doc", async () => {
+    await assertFails(getDoc(doc(as(ALICE), "rateLimits", ALICE)));
+    await assertFails(setDoc(doc(as(ALICE), "rateLimits", ALICE), { syncContacts: [] }));
   });
 });
 

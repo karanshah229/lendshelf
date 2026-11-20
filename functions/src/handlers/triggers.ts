@@ -1,5 +1,6 @@
-import { COL, linkId, type ItemDoc, type ProfileDoc, type WatchDoc } from "../model.js";
-import type { Deps } from "../lib/context.js";
+import { logger } from "firebase-functions";
+import { COL, linkId, type ItemDoc, type LoanDoc, type ProfileDoc, type WatchDoc } from "../model.js";
+import { ts, type Deps } from "../lib/context.js";
 import { msg } from "../lib/messages.js";
 
 /** True when a write makes the copy newly visible to contacts. */
@@ -8,8 +9,43 @@ export function becameShared(before: ItemDoc | undefined, after: ItemDoc | undef
 }
 
 /**
+ * When a copy is deleted, cancel its open borrow requests and tell the
+ * borrowers. Each loan is updated in a transaction that re-checks the status,
+ * so a request accepted or declined meanwhile is left alone. Returns the
+ * notified uids.
+ */
+export async function cancelRequestsForDeletedItem(deps: Deps, itemId: string): Promise<string[]> {
+  const { db } = deps;
+  const open = await db
+    .collection(COL.loans)
+    .where("itemId", "==", itemId)
+    .where("status", "==", "requested")
+    .get();
+  const notified: string[] = [];
+  for (const d of open.docs) {
+    try {
+      const loan = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(d.ref);
+        const current = snap.data() as LoanDoc | undefined;
+        if (!current || current.status !== "requested") return null;
+        tx.update(d.ref, { status: "cancelled", updatedAt: ts(deps.now()) });
+        return current;
+      });
+      if (loan?.borrowerUid) {
+        await deps.push([loan.borrowerUid], msg.itemRemoved(loan.ownerName, loan.title, d.id));
+        notified.push(loan.borrowerUid);
+      }
+    } catch (err) {
+      logger.warn("Cancelling a request for a deleted copy failed", { loanId: d.id, error: String(err) });
+    }
+  }
+  return notified;
+}
+
+/**
  * When a copy becomes shared, notify users with a wishlist watch on its Book
- * who have the owner saved. Returns the notified uids.
+ * who have the owner saved. When a copy is deleted, cancel its open requests.
+ * Returns the notified uids.
  */
 export async function onItemWrittenHandler(
   deps: Deps,
@@ -17,6 +53,7 @@ export async function onItemWrittenHandler(
   before: ItemDoc | undefined,
   after: ItemDoc | undefined,
 ): Promise<string[]> {
+  if (before && !after) return cancelRequestsForDeletedItem(deps, itemId);
   if (!after || !becameShared(before, after)) return [];
   const { db } = deps;
   const watches = await db

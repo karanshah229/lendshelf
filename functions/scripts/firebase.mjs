@@ -95,6 +95,11 @@ if (isWin) {
   }
 }
 
+// The functions emulator gives the code 10 s to load before giving up ("Cannot
+// determine backend specification"). On a busy machine (e.g. tests running
+// next to `serve`) loading firebase-admin can take longer. Seconds.
+env.FUNCTIONS_DISCOVERY_TIMEOUT ??= "60";
+
 const require = createRequire(import.meta.url);
 const cli = require.resolve("firebase-tools/lib/bin/firebase.js");
 const child = spawn(process.execPath, [cli, ...process.argv.slice(2)], { stdio: "inherit", env });

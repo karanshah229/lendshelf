@@ -135,3 +135,18 @@ describe("dailyMaintenance (handler invoked directly)", () => {
     expect((await runDailyMaintenance(deps)).expired).toBe(0);
   });
 });
+
+describe("onItemWritten: copy deleted", () => {
+  it("cancels its open requests and tells the borrowers", async () => {
+    const itemId = await addItem(asha.uid);
+    const { loanId } = await ravi.call<{ loanId: string }>("requestLoan", { itemId });
+    await db.collection(COL.items).doc(itemId).delete();
+    const loan = await waitFor(async () => {
+      const l = await getDoc<LoanDoc>(COL.loans, loanId);
+      return l?.status === "cancelled" ? l : null;
+    }, "request cancelled after the copy was deleted");
+    expect(loan.updatedAt.toMillis()).toBeGreaterThan(Date.now() - 60_000);
+    const push = await waitFor(async () => (await pushesTo(ravi.uid)).find((p) => p.data?.type === "itemRemoved"), "itemRemoved push");
+    expect(push).toMatchObject({ title: "Request cancelled", body: "Asha Rao removed The Hobbit.", data: { loanId } });
+  });
+});

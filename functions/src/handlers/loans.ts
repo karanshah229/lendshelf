@@ -240,6 +240,11 @@ export async function recordLoan(deps: Deps, caller: Caller, data: unknown): Pro
     ]);
     const borrowerUid = indexSnap?.exists ? (indexSnap.data() as PhoneIndexDoc).uid : null;
     if (borrowerUid === caller.uid) throw new HttpsError("invalid-argument", "You can't lend a book to yourself.");
+    // Only push to a matched borrower who has the owner saved: otherwise anyone
+    // could send pushes to any number on the app by "lending" to it.
+    const borrowerHasOwner = borrowerUid
+      ? (await tx.get(db.collection(COL.links).doc(linkId(borrowerUid, caller.uid)))).exists
+      : false;
 
     const now = ts(nowDate);
     const loan: LoanDoc = {
@@ -266,7 +271,9 @@ export async function recordLoan(deps: Deps, caller: Caller, data: unknown): Pro
     tx.update(itemRef, { loanState: "lent", activeLoanId: loanRef.id, dueDate: ts(due), updatedAt: now });
 
     const out: Push[] = [];
-    if (borrowerUid) out.push({ uids: [borrowerUid], message: msg.lentToYou(owner.name, item.title, loanRef.id, due) });
+    if (borrowerUid && borrowerHasOwner) {
+      out.push({ uids: [borrowerUid], message: msg.lentToYou(owner.name, item.title, loanRef.id, due) });
+    }
     for (const o of others.docs) {
       const other = o.data() as LoanDoc;
       tx.update(o.ref, { status: "declined", updatedAt: now });
@@ -294,7 +301,11 @@ export async function markReturned(deps: Deps, caller: Caller, data: unknown): P
   return { ok: true };
 }
 
-/** Owner confirms the book is back: item available, "back" watchers notified. */
+/**
+ * Owner confirms the book is back: item available. "Back" watchers are told
+ * only if the copy is shared and they have the owner saved (they could see
+ * it); all of the copy's "back" watches are then removed.
+ */
 export async function confirmReturn(deps: Deps, caller: Caller, data: unknown): Promise<{ ok: true }> {
   const { loanId } = parseInput(loanIdSchema, data);
   const { db } = deps;
@@ -305,10 +316,11 @@ export async function confirmReturn(deps: Deps, caller: Caller, data: unknown): 
     const itemSnap = await tx.get(itemRef);
     const now = ts(deps.now());
     tx.update(ref, { status: nextStatus(loan.status, "confirmReturn"), returnedAt: now, updatedAt: now });
-    if (itemSnap.exists && (itemSnap.data() as ItemDoc).activeLoanId === loanId) {
+    const item = itemSnap.data() as ItemDoc | undefined;
+    if (item && item.activeLoanId === loanId) {
       tx.update(itemRef, { loanState: "available", activeLoanId: null, dueDate: null, updatedAt: now });
     }
-    return loan;
+    return { ...loan, shared: item?.sharedWithContacts === true };
   });
 
   const watches = await db
@@ -316,10 +328,21 @@ export async function confirmReturn(deps: Deps, caller: Caller, data: unknown): 
     .where("type", "==", "back")
     .where("targetId", "==", loan.itemId)
     .get();
-  const watchers = watches.docs.map((d) => (d.data() as WatchDoc).uid).filter((u) => u !== loan.borrowerUid);
+  let watchers = loan.shared
+    ? [...new Set(watches.docs.map((d) => (d.data() as WatchDoc).uid))].filter(
+        (u) => u !== loan.borrowerUid && u !== loan.ownerId,
+      )
+    : [];
+  if (watchers.length) {
+    const links = await db.getAll(...watchers.map((u) => db.collection(COL.links).doc(linkId(u, loan.ownerId))));
+    watchers = watchers.filter((_, i) => links[i]?.exists);
+  }
   const pushes: Push[] = [];
   if (watchers.length) pushes.push({ uids: watchers, message: msg.itemBack(loan.ownerName, loan.title, loan.itemId) });
-  if (loan.borrowerUid) pushes.push({ uids: [loan.borrowerUid], message: msg.reviewPrompt(loan.title, loan.workId, loanId) });
+  // Review prompt only to a borrower who has the owner saved (see recordLoan).
+  if (loan.borrowerUid && (await db.collection(COL.links).doc(linkId(loan.borrowerUid, loan.ownerId)).get()).exists) {
+    pushes.push({ uids: [loan.borrowerUid], message: msg.reviewPrompt(loan.title, loan.workId, loanId) });
+  }
   await sendAll(deps, pushes);
   if (!watches.empty) {
     const batch = db.batch();

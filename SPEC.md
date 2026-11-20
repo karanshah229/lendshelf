@@ -191,14 +191,16 @@ Private to `uid`.
 ## 4. Security rules (summary)
 
 - `users/{uid}`: read/write by `uid`; client may not write anything except `pushTokens` and `phone` must equal the auth token phone.
-- `profiles/{uid}`: read by any signed-in user; write by `uid` with field validation.
-- `phoneIndex`, `isbnIndex`, `links` (write), `loans` (write): backend only.
+- `profiles/{uid}`: read **by id** by any signed-in user (listing denied); write by `uid` with field validation.
+- `phoneIndex`, `isbnIndex`, `rateLimits`, `links` (write), `loans` (write): backend only.
 - `links`: read when `resource.data.viewerId == auth.uid`.
 - `works`: catalogue works readable by any signed-in user; custom works readable by creator or anyone with `links/{me}_{creator}`; custom works create/update by creator only (`isCustom == true`, `createdBy == auth.uid`, id starts with `custom_`).
 - `shelves`: owner full access (create/rename/sortOrder; **isPublic changes go through `setShelfVisibility`**); others read when `isPublic && links/{me}_{owner}` exists. Delete through `deleteShelf`.
 - `items`: owner create/update/delete with validation (`loanState`, `dueDate`, `activeLoanId` unchanged / defaults; `sharedWithContacts` consistent with the shelf; can't delete while lent; custom work must be own). Others read when `sharedWithContacts == true && links/{me}_{owner}` exists.
 - `reviews`: create/update/delete by author, id must be `${workId}_${auth.uid}`; read by author or linked viewer.
 - `watches`: owner only, id must match fields.
+- All client-written docs: `createdAt`/`updatedAt` must be `serverTimestamp()`. `authors` must be a list of ≤ 20 strings. `coverUrl` must be `null` or a URL from Open Library covers, Google Books, Firebase Storage (or the Storage emulator in dev). Item copies of catalogue works (`ol_`/`gb_` ids) need no work read, so one batch of new copies is limited only by copies of existing custom works (≤ 19 per batch).
+- Storage covers: JPEG, PNG, WebP or HEIC only.
 
 Client queries must be provable by rules: e.g. `items where ownerId == X and sharedWithContacts == true` (one query per linked owner), `loans where ownerId == me`, `loans where borrowerUid == me`, `links where viewerId == me`, `shelves where ownerId == X and isPublic == true`.
 
@@ -212,22 +214,23 @@ All callables require auth. Errors use `HttpsError` with clear messages.
 |---|---|---|---|
 | `onUserCreated` | Auth trigger (v1 `auth.user().onCreate`) | — | Write `users/{uid}`, `phoneIndex/{phone}`, default shelf "My books". Idempotent. |
 | `completeProfile` | callable | `{ name }` → `{ ok }` | Creates/updates `profiles/{uid}`; also ensures `users`, `phoneIndex`, default shelf exist (fallback if the trigger lags). |
-| `syncContacts` | callable | `{ phones: string[] }` (≤ 5000, E.164) → `{ links: {ownerId, ownerPhone, name}[] }` | Look up `phoneIndex`, upsert links for matches (excluding self), delete links no longer present. |
-| `resolveBook` | callable | `{ isbn }` \| `{ olWorkKey, isbn? }` \| `{ gbVolumeId, isbn? }` → `{ workId, work, edition: { isbn, coverUrl, language, publisher, publishYear } }` | Find or create the Work. ISBN path: `isbnIndex` → Open Library `/isbn/{isbn}.json` → work → authors; fallback Google Books. Writes `isbnIndex`. Sets a generic `User-Agent: LendShelf/0.1`. |
+| `syncContacts` | callable | `{ phones: string[] }` (≤ 5000, E.164) → `{ links: {ownerId, ownerPhone, name}[] }` | Look up `phoneIndex`, upsert links for matches (excluding self), delete links no longer present. Max 20 calls per user per rolling 24 h. |
+| `resolveBook` | callable | `{ isbn }` \| `{ olWorkKey, isbn? }` \| `{ gbVolumeId, isbn? }` → `{ workId, work, edition: { isbn, coverUrl, language, publisher, publishYear } }` | Find or create the Work. ISBN path: `isbnIndex` → Open Library `/isbn/{isbn}.json` → work → authors; fallback Google Books. Writes `isbnIndex`; an ISBN passed with a work key / volume id is used only if it belongs to that work. 8 s timeout per request. Sets a generic `User-Agent: LendShelf/0.1`. |
 | `setShelfVisibility` | callable | `{ shelfId, isPublic }` → `{ updated }` | Owner only; updates the shelf and recomputes `sharedWithContacts` on all its items in one batch. |
 | `deleteShelf` | callable | `{ shelfId, moveToShelfId }` → `{ moved }` | Owner only; moves items, recomputes `sharedWithContacts`, deletes shelf. Can't delete the last shelf. |
 | `requestLoan` | callable | `{ itemId, message? }` → `{ loanId, ownerPhone }` | Caller must have the owner saved; item must be shared, `lendable`, `available`; caller not owner; no open request by caller for this item. |
 | `respondToRequest` | callable | `{ loanId, accept, dueDate? (ISO) }` → `{ ok }` | Owner only. Accept → `active` (due default +21 days), item `lent`; other open requests for the item → `declined`. Decline → `declined`. Push to borrower. |
 | `cancelRequest` | callable | `{ loanId }` | Borrower only, `requested` → `cancelled`. |
-| `recordLoan` | callable | `{ itemId, borrowerName, borrowerPhone?, dueDate? }` → `{ loanId }` | Owner lends directly (also to non-app people). Matches `borrowerPhone` to a user via `phoneIndex`. Item must be available. |
+| `recordLoan` | callable | `{ itemId, borrowerName, borrowerPhone?, dueDate? }` → `{ loanId }` | Owner lends directly (also to non-app people). Matches `borrowerPhone` to a user via `phoneIndex`. Item must be available. The borrower is pushed only if they have the owner saved. |
 | `markReturned` | callable | `{ loanId }` | Borrower: `active` → `returnPending`. Push to owner. |
-| `confirmReturn` | callable | `{ loanId }` | Owner: `active`/`returnPending` → `returned`; item `available`; notify and delete `back` watches for the item; push borrower to review. |
+| `confirmReturn` | callable | `{ loanId }` | Owner: `active`/`returnPending` → `returned`; item `available`; notify `back` watchers who have the owner saved (shared copies only) and delete all `back` watches for the item; push borrower to review. |
 | `updateDueDate` | callable | `{ loanId, dueDate }` | Owner, active loans. |
-| `onItemWritten` | Firestore trigger | — | When an item becomes `sharedWithContacts`, push "<owner> added <title>" to users with a `wishlist` watch on that Work who have the owner saved. |
+| `registerPushToken` / `unregisterPushToken` | callable | `{ token }` → `{ ok }` | Add the device's Expo token to the caller (removing it from any other user; keep the 20 newest) / remove it. |
+| `onItemWritten` | Firestore trigger | — | When an item becomes `sharedWithContacts`, push "<owner> added <title>" to users with a `wishlist` watch on that Work who have the owner saved. When an item is deleted, cancel its `requested` loans and push the borrowers "<owner> removed <title>". |
 | `dailyMaintenance` | Scheduled 09:00 Asia/Kolkata | — | Expire `requested` loans older than 7 days; push "due in 2 days" and "overdue" reminders. |
 | `deleteAccount` | callable | `{}` | Removes the user's items (closing their loans), shelves, reviews, watches, links (as viewer and owner), profile, users doc, phoneIndex, storage covers, then the auth user. Loans where they were borrower keep the name but drop `borrowerUid`. |
 
-Push sending goes through a small `sendPush(uids, message)` helper that reads `users/{uid}.pushTokens` and POSTs to `https://exp.host/--/api/v2/push/send`; it is a no-op when running in the emulator without tokens.
+Push sending goes through a small `sendPush(uids, message)` helper that reads `users/{uid}.pushTokens` and POSTs to `https://exp.host/--/api/v2/push/send`; tokens whose ticket says `DeviceNotRegistered` are removed. It records instead of sending in the emulator. App Check enforcement on callables is opt-in (`ENFORCE_APP_CHECK=true`), to be turned on before production.
 
 ---
 

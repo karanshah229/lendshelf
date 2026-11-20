@@ -54,6 +54,8 @@ export const COL = {
   loans: "loans",
   reviews: "reviews",
   watches: "watches",
+  /** `rateLimits/{uid}` — backend-only per-user quotas. */
+  rateLimits: "rateLimits",
   testPushes: "_testPushes",
 } as const;
 

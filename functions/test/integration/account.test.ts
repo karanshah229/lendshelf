@@ -7,6 +7,7 @@ import {
   createUser,
   db,
   expectCode,
+  functionsEmulator,
   getDoc,
   nextPhone,
   REGION,
@@ -73,7 +74,8 @@ describe("onUserCreated + completeProfile", () => {
   it("callables require sign-in", async () => {
     const app = initializeApp({ apiKey: "demo-key", projectId: PROJECT_ID }, "anon-client");
     const fns = getFunctions(app, REGION);
-    connectFunctionsEmulator(fns, "127.0.0.1", 5001);
+    const fe = await functionsEmulator();
+    connectFunctionsEmulator(fns, fe.host, fe.port);
     await expectCode(httpsCallable(fns, "completeProfile")({ name: "x" }), "unauthenticated");
     await deleteApp(app);
   });

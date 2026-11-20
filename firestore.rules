@@ -51,8 +51,35 @@ service cloud.firestore {
       return v is string && v.size() >= 1 && v.size() <= maxLen;
     }
 
-    function isStringList(v, maxSize) {
-      return v is list && v.size() <= maxSize;
+    // Rules have no loops, so each index up to the cap (20, as the client's
+    // parseAuthors) is checked explicitly.
+    function authorAt(v, i) {
+      return v.size() <= i || (v[i] is string && v[i].size() <= 300);
+    }
+
+    function validAuthors(v) {
+      return v is list && v.size() <= 20
+        && authorAt(v, 0) && authorAt(v, 1) && authorAt(v, 2) && authorAt(v, 3) && authorAt(v, 4)
+        && authorAt(v, 5) && authorAt(v, 6) && authorAt(v, 7) && authorAt(v, 8) && authorAt(v, 9)
+        && authorAt(v, 10) && authorAt(v, 11) && authorAt(v, 12) && authorAt(v, 13) && authorAt(v, 14)
+        && authorAt(v, 15) && authorAt(v, 16) && authorAt(v, 17) && authorAt(v, 18) && authorAt(v, 19);
+    }
+
+    // Cover images may only come from the book catalogues, our own Storage
+    // bucket, or (local development) the Storage emulator.
+    function validCoverUrl(v) {
+      return v == null || (v is string && v.size() <= 1000 && v.matches(
+        '(https://(covers[.]openlibrary[.]org|books[.]google[.]com|books[.]googleusercontent[.]com|firebasestorage[.]googleapis[.]com)/'
+        + '|http://(127[.]0[.]0[.]1|localhost|10[.]0[.]2[.]2):[0-9]+/).*'));
+    }
+
+    // Client timestamps must be serverTimestamp().
+    function stampedOnCreate(d) {
+      return d.createdAt == request.time && d.updatedAt == request.time;
+    }
+
+    function stampedOnUpdate(d) {
+      return d.updatedAt == request.time;
     }
 
     // ---- users (private) -----------------------------------------------------
@@ -87,10 +114,13 @@ service cloud.firestore {
     }
 
     match /profiles/{uid} {
-      allow read: if signedIn();
-      allow create: if signedIn() && me() == uid && validProfile(request.resource.data);
+      // By id only: listing would enumerate every user's name.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && me() == uid && validProfile(request.resource.data)
+        && stampedOnCreate(request.resource.data);
       allow update: if signedIn() && me() == uid && validProfile(request.resource.data)
-        && unchanged(['createdAt']);
+        && unchanged(['createdAt']) && stampedOnUpdate(request.resource.data);
       allow delete: if false;
     }
 
@@ -111,6 +141,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Per-user quotas (e.g. syncContacts calls). Backend only.
+    match /rateLimits/{uid} {
+      allow read, write: if false;
+    }
+
     // ---- works ----------------------------------------------------------------
 
     function validCustomWork(d) {
@@ -121,9 +156,9 @@ service cloud.firestore {
         && d.isCustom == true
         && d.createdBy == me()
         && isNonEmptyString(d.title, 300)
-        && isStringList(d.authors, 20)
+        && validAuthors(d.authors)
         && isNullOrString(d.description, 5000)
-        && isNullOrString(d.coverUrl, 1000)
+        && validCoverUrl(d.coverUrl)
         && (d.firstPublishYear == null || d.firstPublishYear is int)
         && d.createdAt is timestamp
         && d.updatedAt is timestamp;
@@ -136,10 +171,13 @@ service cloud.firestore {
         || resource.data.createdBy == me()
         || linked(resource.data.createdBy)
       );
-      allow create: if signedIn() && workId.matches('custom_.+') && validCustomWork(request.resource.data);
+      allow create: if signedIn() && workId.matches('custom_.+') && validCustomWork(request.resource.data)
+        && stampedOnCreate(request.resource.data);
       allow update: if signedIn() && resource.data.isCustom == true && resource.data.createdBy == me()
         && validCustomWork(request.resource.data)
-        && unchanged(['createdAt']);
+        && unchanged(['createdAt']) && stampedOnUpdate(request.resource.data);
+      // Rules can't check "no copies still use it" (that needs a query), so
+      // the client must only delete a custom work once its copies are gone.
       allow delete: if signedIn() && resource.data.isCustom == true && resource.data.createdBy == me();
     }
 
@@ -160,11 +198,13 @@ service cloud.firestore {
         resource.data.ownerId == me()
         || (resource.data.isPublic == true && linked(resource.data.ownerId))
       );
-      allow create: if signedIn() && validShelf(request.resource.data);
+      allow create: if signedIn() && validShelf(request.resource.data)
+        && stampedOnCreate(request.resource.data);
       // isPublic changes go through setShelfVisibility (it recomputes items).
       allow update: if signedIn() && resource.data.ownerId == me()
         && validShelf(request.resource.data)
-        && unchanged(['ownerId', 'isPublic', 'createdAt']);
+        && unchanged(['ownerId', 'isPublic', 'createdAt'])
+        && stampedOnUpdate(request.resource.data);
       // Deletion goes through deleteShelf (it moves the items).
       allow delete: if false;
     }
@@ -182,8 +222,8 @@ service cloud.firestore {
         && d.visibility in ['lendable', 'visible', 'hidden']
         && d.sharedWithContacts is bool
         && isNonEmptyString(d.title, 300)
-        && isStringList(d.authors, 20)
-        && isNullOrString(d.coverUrl, 1000)
+        && validAuthors(d.authors)
+        && validCoverUrl(d.coverUrl)
         && d.isCustom is bool
         && isNullOrString(d.isbn, 20)
         && (d.format == null || d.format in ['paperback', 'hardcover', 'other'])
@@ -202,12 +242,19 @@ service cloud.firestore {
         && d.sharedWithContacts == (shelf.data.isPublic == true && d.visibility != 'hidden');
     }
 
-    // The work must exist; isCustom must match it; a custom work must be mine.
+    function customWorkIsMine(workId) {
+      let work = getAfter(docPath('works', workId));
+      return work != null && work.data.isCustom == true && work.data.createdBy == me();
+    }
+
+    // Catalogue works (ol_/gb_ ids) are created only by resolveBook, so their
+    // copies need no document read: that keeps a batch of new copies within
+    // Firestore's 20 document-access calls per request. A custom work
+    // (custom_ id) must exist (getAfter: it may be created in the same batch)
+    // and be mine.
     function workConsistent(d) {
-      let work = getAfter(docPath('works', d.workId));
-      return work != null
-        && d.isCustom == work.data.isCustom
-        && (work.data.isCustom == false || work.data.createdBy == me());
+      return (d.workId.matches('(ol|gb)_.+') && d.isCustom == false)
+        || (d.workId.matches('custom_.+') && d.isCustom == true && customWorkIsMine(d.workId));
     }
 
     match /items/{itemId} {
@@ -220,12 +267,14 @@ service cloud.firestore {
         && request.resource.data.loanState == 'available'
         && request.resource.data.dueDate == null
         && request.resource.data.activeLoanId == null
+        && stampedOnCreate(request.resource.data)
         && shelfConsistent(request.resource.data)
         && workConsistent(request.resource.data);
       // loanState / dueDate / activeLoanId are backend-only.
       allow update: if signedIn() && resource.data.ownerId == me()
         && validItem(request.resource.data)
         && unchanged(['ownerId', 'workId', 'category', 'isCustom', 'loanState', 'dueDate', 'activeLoanId', 'createdAt'])
+        && stampedOnUpdate(request.resource.data)
         && shelfConsistent(request.resource.data);
       allow delete: if signedIn() && resource.data.ownerId == me() && resource.data.loanState != 'lent';
     }
@@ -263,10 +312,12 @@ service cloud.firestore {
       allow get: if signedIn() && (reviewAuthor(reviewId) == me() || linked(reviewAuthor(reviewId)));
       allow list: if signedIn() && (resource.data.authorId == me() || linked(resource.data.authorId));
       allow create: if signedIn() && validReview(request.resource.data, reviewId)
+        && stampedOnCreate(request.resource.data)
         && exists(docPath('works', request.resource.data.workId));
       allow update: if signedIn() && resource.data.authorId == me()
         && validReview(request.resource.data, reviewId)
-        && unchanged(['workId', 'authorId', 'createdAt']);
+        && unchanged(['workId', 'authorId', 'createdAt'])
+        && stampedOnUpdate(request.resource.data);
       allow delete: if signedIn() && resource.data.authorId == me();
     }
 
@@ -288,7 +339,8 @@ service cloud.firestore {
       // By id: the uid is the first segment, so "am I watching?" works for missing docs.
       allow get: if signedIn() && watchId.split('_')[0] == me();
       allow list: if signedIn() && resource.data.uid == me();
-      allow create: if signedIn() && validWatch(request.resource.data, watchId);
+      allow create: if signedIn() && validWatch(request.resource.data, watchId)
+        && request.resource.data.createdAt == request.time;
       allow update: if signedIn() && resource.data.uid == me() && validWatch(request.resource.data, watchId);
       allow delete: if signedIn() && resource.data.uid == me();
     }

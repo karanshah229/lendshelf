@@ -26,7 +26,7 @@ beforeAll(async () => {
     projectId: "demo-lendshelf",
     storage: {
       rules: readFileSync(resolve(process.cwd(), "../storage.rules"), "utf8"),
-      ...hostPort(process.env.FIREBASE_STORAGE_EMULATOR_HOST, "127.0.0.1:9199"),
+      ...hostPort(process.env.FIREBASE_STORAGE_EMULATOR_HOST, "127.0.0.1:19199"),
     },
   });
 });
@@ -52,6 +52,12 @@ describe("storage: covers/{uid}/{fileName}", () => {
     await assertSucceeds(uploadBytes(ref(storageAs("alice"), "covers/alice/new.png"), png, { contentType: "image/png" }));
     await assertFails(uploadBytes(ref(storageAs("bob"), "covers/alice/evil.png"), png, { contentType: "image/png" }));
     await assertFails(uploadBytes(ref(storageAs("alice"), "covers/alice/notes.txt"), png, { contentType: "text/plain" }));
+    // Raster images only: SVG can carry script.
+    for (const type of ["image/jpeg", "image/webp", "image/heic"]) {
+      await assertSucceeds(uploadBytes(ref(storageAs("alice"), `covers/alice/ok.${type.slice(6)}`), png, { contentType: type }));
+    }
+    await assertFails(uploadBytes(ref(storageAs("alice"), "covers/alice/evil.svg"), png, { contentType: "image/svg+xml" }));
+    await assertFails(uploadBytes(ref(storageAs("alice"), "covers/alice/x.gif"), png, { contentType: "image/gif" }));
     const big = new Uint8Array(5 * 1024 * 1024 + 1);
     await assertFails(uploadBytes(ref(storageAs("alice"), "covers/alice/big.png"), big, { contentType: "image/png" }));
     await assertFails(uploadBytes(ref(storageAs("alice"), "other/alice.png"), png, { contentType: "image/png" }));

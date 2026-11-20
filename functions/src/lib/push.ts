@@ -6,6 +6,8 @@ import { logger } from "firebase-functions";
 
 export const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 export const EXPO_BATCH_SIZE = 100;
+/** Most devices kept per user; registering one more drops the oldest. */
+export const MAX_PUSH_TOKENS = 20;
 
 export interface PushMessage {
   title: string;
@@ -31,11 +33,36 @@ export interface PushResult {
 /** Send `message` to every device of every uid. Never throws. */
 export type PushSender = (uids: string[], message: PushMessage) => Promise<PushResult>;
 export type TokenLookup = (uids: string[]) => Promise<string[]>;
-export type PushTransport = (messages: ExpoPushMessage[]) => Promise<void>;
+/** Sends messages; resolves with the tokens Expo reported as no longer registered. */
+export type PushTransport = (messages: ExpoPushMessage[]) => Promise<string[] | void>;
+/** Removes dead tokens from whichever users hold them. */
+export type TokenRemover = (tokens: string[]) => Promise<void>;
 export type PushRecorder = (record: { uids: string[]; message: PushMessage; tokenCount: number }) => Promise<void>;
 
 export function isExpoPushToken(token: unknown): token is string {
   return typeof token === "string" && /^Expo(nent)?PushToken\[[^\]]+\]$/.test(token);
+}
+
+/** `tokens` with `token` moved/added to the end (newest), keeping at most MAX_PUSH_TOKENS. */
+export function withPushToken(tokens: readonly unknown[], token: string): string[] {
+  const kept = tokens.filter((t): t is string => typeof t === "string" && t !== token);
+  return [...kept, token].slice(-MAX_PUSH_TOKENS);
+}
+
+/**
+ * Tokens whose push ticket says `DeviceNotRegistered` (the app was uninstalled
+ * or the token rotated). Tickets come back in the same order as the messages.
+ */
+export function deadTokensFromTickets(messages: readonly ExpoPushMessage[], body: unknown): string[] {
+  const data = typeof body === "object" && body !== null ? (body as { data?: unknown }).data : undefined;
+  if (!Array.isArray(data)) return [];
+  const dead: string[] = [];
+  data.forEach((ticket, i) => {
+    const t = ticket as { status?: unknown; details?: { error?: unknown } } | null;
+    const m = messages[i];
+    if (t?.status === "error" && t.details?.error === "DeviceNotRegistered" && m) dead.push(m.to);
+  });
+  return dead;
 }
 
 export function chunk<T>(items: readonly T[], size: number): T[][] {
@@ -61,9 +88,14 @@ type FetchForPush = (
   init: { method: string; headers: Record<string, string>; body: string },
 ) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
-/** Transport that POSTs to the Expo push API in batches of 100. Logs failures. */
+/**
+ * Transport that POSTs to the Expo push API in batches of 100. Logs failures.
+ * Returns tokens whose tickets say DeviceNotRegistered. (Receipts, fetched
+ * later from Expo, can report more; they aren't read.)
+ */
 export function expoTransport(fetchImpl: FetchForPush): PushTransport {
   return async (messages) => {
+    const dead: string[] = [];
     for (const batch of chunk(messages, EXPO_BATCH_SIZE)) {
       try {
         const res = await fetchImpl(EXPO_PUSH_URL, {
@@ -75,11 +107,21 @@ export function expoTransport(fetchImpl: FetchForPush): PushTransport {
           },
           body: JSON.stringify(batch),
         });
-        if (!res.ok) logger.warn("Expo push failed", { status: res.status, body: await res.text() });
+        const text = await res.text();
+        if (!res.ok) {
+          logger.warn("Expo push failed", { status: res.status, body: text });
+          continue;
+        }
+        try {
+          dead.push(...deadTokensFromTickets(batch, JSON.parse(text)));
+        } catch {
+          /* unreadable tickets: nothing to clean up */
+        }
       } catch (err) {
         logger.warn("Expo push request error", { error: String(err) });
       }
     }
+    return dead;
   };
 }
 
@@ -89,6 +131,8 @@ export interface PushSenderOptions {
   /** When true (functions emulator), record instead of sending. */
   emulator: boolean;
   recorder?: PushRecorder;
+  /** Called with tokens Expo says are no longer registered. */
+  removeTokens?: TokenRemover;
 }
 
 export function createPushSender(opts: PushSenderOptions): PushSender {
@@ -117,7 +161,19 @@ export function createPushSender(opts: PushSenderOptions): PushSender {
       logger.info("Push skipped: no tokens", { uids, title: message.title });
       return { uids, tokenCount: 0, outcome: "skipped" };
     }
-    await opts.transport(messages);
+    let dead: string[] | void = [];
+    try {
+      dead = await opts.transport(messages);
+    } catch (err) {
+      logger.warn("Push transport failed", { error: String(err) });
+    }
+    if (dead && dead.length > 0 && opts.removeTokens) {
+      try {
+        await opts.removeTokens([...new Set(dead)]);
+      } catch (err) {
+        logger.warn("Removing dead push tokens failed", { error: String(err) });
+      }
+    }
     return { uids, tokenCount: messages.length, outcome: "sent" };
   };
 }

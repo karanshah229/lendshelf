@@ -1,6 +1,7 @@
 import { type DocumentReference, type Firestore, type Query } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { z } from "zod";
+import { trackedBulkWriter } from "../lib/bulk.js";
 import { ts, type Caller, type Deps } from "../lib/context.js";
 import { HttpsError, parseInput } from "../lib/errors.js";
 import { normalisePhone } from "../lib/phone.js";
@@ -136,8 +137,7 @@ export async function deleteAccount(deps: Deps, caller: Caller): Promise<DeleteA
   const uid = caller.uid;
   const now = ts(deps.now());
   const counts: Record<string, number> = {};
-  const writer = db.bulkWriter();
-  writer.onWriteError((err) => err.failedAttempts < 3);
+  const writer = trackedBulkWriter(db);
 
   // Loans they own: close them.
   const ownedLoans = await db.collection(COL.loans).where("ownerId", "==", uid).get();
@@ -212,8 +212,18 @@ export async function deleteAccount(deps: Deps, caller: Caller): Promise<DeleteA
   }
 
   writer.delete(db.collection(COL.profiles).doc(uid));
+  writer.delete(db.collection(COL.rateLimits).doc(uid));
   writer.delete(userSnap.ref);
-  await writer.close();
+  const failures = await writer.close();
+  if (failures.length > 0) {
+    // Keep the Auth user so the user can simply try again (every step above is repeatable).
+    logger.error("deleteAccount: some writes failed", {
+      uid,
+      failed: failures.length,
+      sample: failures.slice(0, 5).map((f) => ({ path: f.path, error: String(f.error) })),
+    });
+    throw new HttpsError("internal", "Some of your data couldn't be deleted. Please try deleting your account again.");
+  }
 
   await deps.deleteUserFiles(uid);
   try {

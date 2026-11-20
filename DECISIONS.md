@@ -21,3 +21,14 @@ Product decisions agreed with the owner are in SPEC.md §1. This file records sy
 | 15 | iOS `useFrameworks: "dynamic"` | React Native Firebase (current) is SPM-only; static frameworks break `pod install`. |
 | 16 | Contacts onboarding step is tracked per device | A new phone needs contacts permission anyway. |
 | 17 | Contact sync with an empty list is skipped | Prevents wiping all links when permission is denied or contacts fail to load. |
+| 18 | Profiles are readable by id only, not listable | Listing would let any user enumerate every user's name. |
+| 19 | Item rules don't read catalogue works (`ol_`/`gb_` ids); only custom works are read | Firestore allows 20 document reads per batch; reading every work capped a batch of new copies at 19. Catalogue works are created only by `resolveBook`. |
+| 20 | `coverUrl` allowlist (catalogue hosts, Firebase Storage, Storage emulator) and string-only `authors` in rules; Storage covers raster-only | Stops arbitrary tracking URLs / SVG script in other users' apps. Physical-device dev with a LAN IP for the Storage emulator isn't allowed by the rules. |
+| 21 | Client timestamps must equal `request.time` | Prevents back-dated or future `createdAt`/`updatedAt`. All client writes already use `serverTimestamp()`. |
+| 22 | `resolveBook` trusts a client ISBN given with a work key/volume id only if the catalogue confirms it belongs to that work | Otherwise one client could map an ISBN to the wrong Book in `isbnIndex` for everyone. |
+| 23 | Pushes about a loan the owner recorded go to the borrower only if the borrower has the owner saved; `back` watchers likewise, and only for shared copies | `recordLoan` accepts any number, so it could otherwise push attacker-chosen text to any app user. |
+| 24 | `syncContacts`: 20 calls per user per rolling 24 h (`rateLimits/{uid}`) | Limits phone-number probing. |
+| 25 | App Check enforcement is an env opt-in (`ENFORCE_APP_CHECK`), off by default | Emulators and current builds have no App Check; must be turned on before production. |
+| 26 | Push tokens are registered through `registerPushToken`/`unregisterPushToken`; a device belongs to one account; 20 newest kept; `DeviceNotRegistered` tokens removed | Stops pushes to a previous account on a shared phone and stale-token build-up. |
+| 27 | Deleting a copy cancels its open requests (trigger); daily expiry uses a `lastUpdateTime` precondition; `deleteAccount` aborts before deleting the Auth user if any write failed | Keeps loan state consistent and lets the user retry a partial deletion. |
+| 28 | Test scripts use `firebase.test.json` (all emulator ports +10000, no UI) | Tests can run while the dev emulators are up, without touching their data. |

@@ -1,9 +1,10 @@
 import { logger } from "firebase-functions";
+import { trackedBulkWriter } from "../lib/bulk.js";
 import { ts, type Deps } from "../lib/context.js";
 import { reminderKind, requestExpiryCutoff } from "../lib/loans.js";
 import { msg } from "../lib/messages.js";
-import type { PushMessage } from "../lib/push.js";
-import { COL, type LoanDoc } from "../model.js";
+import { chunk, type PushMessage } from "../lib/push.js";
+import { COL, linkId, type LoanDoc } from "../model.js";
 
 export interface MaintenanceResult {
   expired: number;
@@ -25,14 +26,31 @@ export async function runDailyMaintenance(deps: Deps): Promise<MaintenanceResult
     .where("status", "==", "requested")
     .where("requestedAt", "<=", ts(requestExpiryCutoff(now)))
     .get();
-  const writer = db.bulkWriter();
+  const writer = trackedBulkWriter(db);
+  let expired = 0;
   for (const d of stale.docs) {
     const loan = d.data() as LoanDoc;
-    writer.update(d.ref, { status: "expired", updatedAt: ts(now) });
-    if (loan.borrowerUid) pushes.push({ uids: [loan.borrowerUid], message: msg.requestExpired(loan.title, d.id) });
+    // Precondition: only if the loan hasn't changed since we read it (e.g. the
+    // owner accepted it in the meantime). A failed precondition just skips it.
+    writer.update(d.ref, { status: "expired", updatedAt: ts(now) }, { lastUpdateTime: d.updateTime }).then(
+      () => {
+        expired++;
+        if (loan.borrowerUid) pushes.push({ uids: [loan.borrowerUid], message: msg.requestExpired(loan.title, d.id) });
+      },
+      () => undefined,
+    );
   }
-  await writer.close();
+  const failures = await writer.close();
+  if (failures.length > 0) {
+    logger.warn("dailyMaintenance: some requests weren't expired (changed meanwhile or write failed)", {
+      failed: failures.length,
+      sample: failures.slice(0, 5).map((f) => ({ path: f.path, error: String(f.error) })),
+    });
+  }
 
+  // Reminders to the borrower go only to borrowers who have the owner saved
+  // (a loan the owner recorded can name any app user's number).
+  const borrowerReminders: { borrowerUid: string; ownerId: string; message: PushMessage }[] = [];
   let dueSoon = 0;
   let overdue = 0;
   const active = await db.collection(COL.loans).where("status", "==", "active").get();
@@ -43,12 +61,23 @@ export async function runDailyMaintenance(deps: Deps): Promise<MaintenanceResult
     const kind = reminderKind(due, now);
     if (kind === "dueSoon") {
       dueSoon++;
-      if (loan.borrowerUid) pushes.push({ uids: [loan.borrowerUid], message: msg.dueSoon(loan.title, d.id, due) });
+      if (loan.borrowerUid) {
+        borrowerReminders.push({ borrowerUid: loan.borrowerUid, ownerId: loan.ownerId, message: msg.dueSoon(loan.title, d.id, due, now) });
+      }
     } else if (kind === "overdue") {
       overdue++;
-      if (loan.borrowerUid) pushes.push({ uids: [loan.borrowerUid], message: msg.overdueBorrower(loan.title, d.id, due) });
+      if (loan.borrowerUid) {
+        borrowerReminders.push({ borrowerUid: loan.borrowerUid, ownerId: loan.ownerId, message: msg.overdueBorrower(loan.title, d.id, due) });
+      }
       pushes.push({ uids: [loan.ownerId], message: msg.overdueOwner(loan.borrowerName, loan.title, d.id, due) });
     }
+  }
+
+  for (const part of chunk(borrowerReminders, 300)) {
+    const links = await db.getAll(...part.map((r) => db.collection(COL.links).doc(linkId(r.borrowerUid, r.ownerId))));
+    part.forEach((r, i) => {
+      if (links[i]?.exists) pushes.push({ uids: [r.borrowerUid], message: r.message });
+    });
   }
 
   for (const p of pushes) {
@@ -58,7 +87,7 @@ export async function runDailyMaintenance(deps: Deps): Promise<MaintenanceResult
       logger.warn("push failed", { error: String(err) });
     }
   }
-  const result = { expired: stale.size, dueSoon, overdue };
+  const result = { expired, dueSoon, overdue };
   logger.info("dailyMaintenance", result);
   return result;
 }

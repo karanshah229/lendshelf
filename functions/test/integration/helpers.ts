@@ -1,11 +1,15 @@
 /**
  * Shared helpers for integration tests. They run against the emulators started
- * by `firebase emulators:exec` (auth, firestore, functions, storage).
+ * by `firebase emulators:exec --config ../firebase.test.json` (auth, firestore,
+ * functions, storage on shifted ports), which sets the *_EMULATOR_HOST env vars.
+ * The fallbacks are the test ports, never the dev ports, so a stray run can't
+ * wipe the dev emulators' data.
  */
 process.env.GCLOUD_PROJECT ??= "demo-lendshelf";
-process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";
-process.env.FIREBASE_AUTH_EMULATOR_HOST ??= "127.0.0.1:9099";
-process.env.FIREBASE_STORAGE_EMULATOR_HOST ??= "127.0.0.1:9199";
+process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:18080";
+process.env.FIREBASE_AUTH_EMULATOR_HOST ??= "127.0.0.1:19099";
+process.env.FIREBASE_STORAGE_EMULATOR_HOST ??= "127.0.0.1:19199";
+process.env.FIREBASE_EMULATOR_HUB ??= "127.0.0.1:14400";
 
 import { deleteApp as deleteAdminApp, getApps as getAdminApps, initializeApp as initAdmin } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
@@ -26,13 +30,27 @@ const adminApp = getAdminApps()[0] ?? initAdmin({ projectId: PROJECT_ID, storage
 export const db: Firestore = getAdminFirestore(adminApp);
 export const adminAuth = getAdminAuth(adminApp);
 
+let functionsHost: Promise<{ host: string; port: number }> | null = null;
+
+/** Host/port of the Functions emulator, from the Emulator Hub (no env var exists for it). */
+export function functionsEmulator(): Promise<{ host: string; port: number }> {
+  functionsHost ??= (async () => {
+    const res = await fetch(`http://${process.env.FIREBASE_EMULATOR_HUB}/emulators`);
+    if (!res.ok) throw new Error(`Emulator hub returned ${res.status}`);
+    const info = (await res.json()) as { functions?: { host: string; port: number } };
+    if (!info.functions) throw new Error("The Functions emulator isn't running");
+    return { host: info.functions.host, port: info.functions.port };
+  })();
+  return functionsHost;
+}
+
 export async function clearEmulators(): Promise<void> {
   const r1 = await fetch(`${FIRESTORE}/emulator/v1/projects/${PROJECT_ID}/databases/(default)/documents`, { method: "DELETE" });
   const r2 = await fetch(`${AUTH}/emulator/v1/projects/${PROJECT_ID}/accounts`, { method: "DELETE" });
   if (!r1.ok || !r2.ok) throw new Error(`Clearing emulators failed: ${r1.status} / ${r2.status}`);
 }
 
-export async function waitFor<T>(fn: () => Promise<T | null | undefined | false>, what: string, timeoutMs = 20_000): Promise<T> {
+export async function waitFor<T>(fn: () => Promise<T | null | undefined | false>, what: string, timeoutMs = 60_000): Promise<T> {
   const start = Date.now();
   for (;;) {
     const v = await fn();
@@ -57,7 +75,7 @@ let appCounter = 0;
 export async function createUser(phone: string, name?: string): Promise<TestUser> {
   const rec = await adminAuth.createUser({ phoneNumber: phone });
   const uid = rec.uid;
-  await waitFor(async () => (await db.collection(COL.users).doc(uid).get()).exists, `users/${uid} from onUserCreated`);
+  await waitFor(async () => (await db.collection(COL.users).doc(uid).get()).exists, `users/${uid} from onUserCreated`, 90_000);
 
   const app = initializeApp({ apiKey: "demo-key", projectId: PROJECT_ID, authDomain: `${PROJECT_ID}.firebaseapp.com` }, `user-${++appCounter}`);
   clientApps.push(app);
@@ -65,14 +83,15 @@ export async function createUser(phone: string, name?: string): Promise<TestUser
   connectAuthEmulator(auth, AUTH, { disableWarnings: true });
   await signInWithCustomToken(auth, await adminAuth.createCustomToken(uid));
   const fns = getFunctions(app, REGION);
-  connectFunctionsEmulator(fns, "127.0.0.1", 5001);
+  const fe = await functionsEmulator();
+  connectFunctionsEmulator(fns, fe.host, fe.port);
   const user: TestUser = {
     uid,
     phone,
     name: name ?? phone,
     app,
     async call<T>(fname: string, data: unknown = {}) {
-      const res = await httpsCallable(fns, fname, { timeout: 30_000 })(data);
+      const res = await httpsCallable(fns, fname, { timeout: 90_000 })(data);
       return res.data as T;
     },
   };

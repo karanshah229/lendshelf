@@ -45,6 +45,17 @@ export function firestoreTokenLookup(db: Firestore) {
   };
 }
 
+/** Removes push tokens Expo reported as dead from every user that holds them. */
+export function firestoreTokenRemover(db: Firestore) {
+  return async (tokens: string[]): Promise<void> => {
+    for (const token of tokens) {
+      const holders = await db.collection(COL.users).where("pushTokens", "array-contains", token).get();
+      await Promise.all(holders.docs.map((d) => d.ref.update({ pushTokens: FieldValue.arrayRemove(token) })));
+    }
+    logger.info("Removed unregistered push tokens", { count: tokens.length });
+  };
+}
+
 /** Emulator test hook: every push is recorded in `_testPushes`. */
 export function firestorePushRecorder(db: Firestore) {
   return async (r: { uids: string[]; message: { title: string; body: string; data?: Record<string, string> }; tokenCount: number }) => {
@@ -76,6 +87,7 @@ export function defaultDeps(): Deps {
       transport: expoTransport(fetchImpl),
       emulator: isEmulator(),
       recorder: firestorePushRecorder(db),
+      removeTokens: firestoreTokenRemover(db),
     }),
     deleteUserFiles: async (uid) => {
       try {

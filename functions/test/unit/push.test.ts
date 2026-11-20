@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildExpoMessages,
   chunk,
+  deadTokensFromTickets,
+  MAX_PUSH_TOKENS,
+  withPushToken,
   createPushSender,
   EXPO_PUSH_URL,
   expoTransport,
@@ -107,11 +110,11 @@ describe("expoTransport", () => {
 
   it("swallows HTTP and network errors", async () => {
     const failing = vi.fn(async () => ({ ok: false, status: 500, text: async () => "err" }));
-    await expect(expoTransport(failing)([{ to: T1, title: "", body: "", data: {}, sound: "default" }])).resolves.toBeUndefined();
+    await expect(expoTransport(failing)([{ to: T1, title: "", body: "", data: {}, sound: "default" }])).resolves.toEqual([]);
     const throwing = vi.fn(async () => {
       throw new Error("offline");
     });
-    await expect(expoTransport(throwing)([{ to: T1, title: "", body: "", data: {}, sound: "default" }])).resolves.toBeUndefined();
+    await expect(expoTransport(throwing)([{ to: T1, title: "", body: "", data: {}, sound: "default" }])).resolves.toEqual([]);
   });
 });
 
@@ -129,5 +132,73 @@ describe("push texts", () => {
       workId: "ol_OL1W",
     });
     expect(msg.overdueOwner("Kabir", "Dune", "L2", due).body).toContain("Kabir still has Dune");
+  });
+});
+
+describe("device tokens", () => {
+  it("withPushToken moves the token to the end and keeps the 20 newest", () => {
+    expect(withPushToken([T1, T2], T1)).toEqual([T2, T1]);
+    expect(withPushToken([], T1)).toEqual([T1]);
+    const many = Array.from({ length: MAX_PUSH_TOKENS }, (_, i) => `ExponentPushToken[t${i}]`);
+    const next = withPushToken(many, T1);
+    expect(next).toHaveLength(MAX_PUSH_TOKENS);
+    expect(next[0]).toBe("ExponentPushToken[t1]"); // oldest (t0) dropped
+    expect(next[MAX_PUSH_TOKENS - 1]).toBe(T1);
+    expect(withPushToken([42, null, T2], T1)).toEqual([T2, T1]);
+  });
+
+  it("deadTokensFromTickets picks DeviceNotRegistered tickets by position", () => {
+    const messages = buildExpoMessages([T1, T2], { title: "t", body: "b" });
+    const body = {
+      data: [
+        { status: "ok", id: "abc" },
+        { status: "error", message: "not registered", details: { error: "DeviceNotRegistered" } },
+      ],
+    };
+    expect(deadTokensFromTickets(messages, body)).toEqual([T2]);
+    expect(deadTokensFromTickets(messages, { data: [{ status: "error", details: { error: "MessageTooBig" } }] })).toEqual([]);
+    expect(deadTokensFromTickets(messages, { errors: [] })).toEqual([]);
+    expect(deadTokensFromTickets(messages, null)).toEqual([]);
+  });
+
+  it("expoTransport returns dead tokens and the sender removes them", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ data: [{ status: "error", details: { error: "DeviceNotRegistered" } }, { status: "ok" }] }),
+    }));
+    const removeTokens = vi.fn(async (_t: string[]) => undefined);
+    const send = createPushSender({
+      getTokens: async () => [T1, T2],
+      transport: expoTransport(fetchImpl),
+      emulator: false,
+      removeTokens,
+    });
+    const r = await send(["u1"], { title: "a", body: "b" });
+    expect(r.outcome).toBe("sent");
+    expect(removeTokens).toHaveBeenCalledWith([T1]);
+  });
+
+  it("never throws when the transport or token removal fails", async () => {
+    const send = createPushSender({
+      getTokens: async () => [T1],
+      transport: async () => {
+        throw new Error("boom");
+      },
+      emulator: false,
+      removeTokens: async () => {
+        throw new Error("boom");
+      },
+    });
+    await expect(send(["u1"], { title: "a", body: "b" })).resolves.toMatchObject({ outcome: "sent" });
+    const send2 = createPushSender({
+      getTokens: async () => [T1],
+      transport: async () => [T1],
+      emulator: false,
+      removeTokens: async () => {
+        throw new Error("boom");
+      },
+    });
+    await expect(send2(["u1"], { title: "a", body: "b" })).resolves.toMatchObject({ outcome: "sent" });
   });
 });

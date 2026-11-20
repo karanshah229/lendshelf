@@ -226,3 +226,37 @@ describe("recordLoan", () => {
     await expectCode(asha.call("recordLoan", { itemId, borrowerName: "X", dueDate: "2001-01-01" }), "invalid-argument", /past/);
   });
 });
+
+describe("pushes only reach people who have the owner saved", () => {
+  it("recordLoan to an app user without the owner saved: borrowerUid set, no pushes", async () => {
+    const itemId = await addItem(asha.uid);
+    const { loanId } = await asha.call<{ loanId: string }>("recordLoan", { itemId, borrowerName: "Kabir", borrowerPhone: kabir.phone });
+    expect((await getDoc<LoanDoc>(COL.loans, loanId))?.borrowerUid).toBe(kabir.uid);
+    await asha.call("confirmReturn", { loanId }); // no review prompt either
+    expect(await pushesTo(kabir.uid)).toEqual([]);
+  });
+
+  it("'back' watchers: only linked ones, only for a shared copy; all watches removed", async () => {
+    const watchBack = (u: TestUser, itemId: string) =>
+      db.collection(COL.watches).doc(watchId(u.uid, "back", itemId)).set({
+        uid: u.uid, type: "back", targetId: itemId, workId: WORK.id, title: "The Hobbit", createdAt: Timestamp.now(),
+      } satisfies WatchDoc);
+
+    const shared = await addItem(asha.uid);
+    await Promise.all([watchBack(meera, shared), watchBack(kabir, shared)]);
+    const l1 = await asha.call<{ loanId: string }>("recordLoan", { itemId: shared, borrowerName: "Uncle" });
+    await asha.call("confirmReturn", { loanId: l1.loanId });
+    expect((await pushesTo(meera.uid)).map((p) => p.title)).toEqual(["Book is back"]);
+    expect(await pushesTo(kabir.uid)).toEqual([]);
+    expect(await getDoc(COL.watches, watchId(kabir.uid, "back", shared))).toBeUndefined();
+
+    await clearPushes();
+    const privShelf = await addShelf(asha.uid, "Private2", false);
+    const priv = await addItem(asha.uid, { shelfId: privShelf });
+    await watchBack(meera, priv);
+    const l2 = await asha.call<{ loanId: string }>("recordLoan", { itemId: priv, borrowerName: "Uncle" });
+    await asha.call("confirmReturn", { loanId: l2.loanId });
+    expect(await pushesTo(meera.uid)).toEqual([]);
+    expect(await getDoc(COL.watches, watchId(meera.uid, "back", priv))).toBeUndefined();
+  });
+});

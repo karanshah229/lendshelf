@@ -4,6 +4,7 @@
  * Network access goes through an injected `fetch`, and persistence through an
  * injected `BookStore`, so the whole resolution flow is unit-testable.
  */
+import { logger } from "firebase-functions";
 import { HttpsError } from "./errors.js";
 import { normaliseIsbn } from "./isbn.js";
 import { gbWorkId, olWorkId, type EditionInfo, type IsbnIndexDoc, type WorkData } from "../model.js";
@@ -11,22 +12,31 @@ import { gbWorkId, olWorkId, type EditionInfo, type IsbnIndexDoc, type WorkData 
 export const USER_AGENT = "LendShelf/0.1";
 export const OL_BASE = "https://openlibrary.org";
 export const GB_BASE = "https://www.googleapis.com/books/v1/volumes";
+/** Per-request timeout for catalogue calls; a timeout counts as a source error. */
+export const FETCH_TIMEOUT_MS = 8000;
 
 export interface FetchResponseLike {
   ok: boolean;
   status: number;
   json(): Promise<unknown>;
 }
-export type FetchLike = (url: string, init?: { headers?: Record<string, string> }) => Promise<FetchResponseLike>;
+export type FetchLike = (
+  url: string,
+  init?: { headers?: Record<string, string>; signal?: AbortSignal },
+) => Promise<FetchResponseLike>;
 
 /** Thrown for network failures / 5xx responses (as opposed to "not found"). */
 export class BookSourceError extends Error {}
 
-/** Fetch JSON. Returns null on 404; throws BookSourceError on other failures. */
-export async function getJson(fetchImpl: FetchLike, url: string): Promise<unknown | null> {
+/**
+ * Fetch JSON. Returns null on 404; throws BookSourceError on other failures,
+ * including no response within `timeoutMs` (so the Google Books fallback runs).
+ */
+export async function getJson(fetchImpl: FetchLike, url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<unknown | null> {
+  const signal = AbortSignal.timeout(timeoutMs);
   let res: FetchResponseLike;
   try {
-    res = await fetchImpl(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
+    res = await fetchImpl(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal });
   } catch (err) {
     throw new BookSourceError(`Request to ${url} failed: ${String(err)}`);
   }
@@ -193,6 +203,8 @@ export interface GbVolume {
   volumeId: string;
   work: WorkData;
   edition: EditionInfo;
+  /** ISBN-13s listed in the volume's industryIdentifiers (ISBN-10s converted). */
+  isbns: string[];
 }
 
 function parseGbVolume(item: unknown, isbnHint: string | null): GbVolume | null {
@@ -203,6 +215,14 @@ function parseGbVolume(item: unknown, isbnHint: string | null): GbVolume | null 
   if (!id || !title || !isValidGbVolumeId(id)) return null;
   const subtitle = str(vi.subtitle);
   const ids = Array.isArray(vi.industryIdentifiers) ? vi.industryIdentifiers : [];
+  const isbns = [
+    ...new Set(
+      ids
+        .map((x) => (isObj(x) && (x.type === "ISBN_13" || x.type === "ISBN_10") ? str(x.identifier) : null))
+        .map((x) => (x ? normaliseIsbn(x) : null))
+        .filter((x): x is string => x !== null),
+    ),
+  ];
   const isbn13 =
     isbnHint ??
     ids
@@ -213,6 +233,7 @@ function parseGbVolume(item: unknown, isbnHint: string | null): GbVolume | null 
   const year = parseYear(vi.publishedDate);
   return {
     volumeId: id,
+    isbns,
     work: {
       category: "book",
       source: "googlebooks",
@@ -305,11 +326,9 @@ function requireIsbn(raw: string): string {
 }
 
 function unavailable(err: unknown): HttpsError {
-  return new HttpsError(
-    "unavailable",
-    "The book catalogue couldn't be reached. Please try again in a moment.",
-    { reason: String(err) },
-  );
+  // The cause is logged, not sent to the client (it holds internal URLs).
+  logger.warn("Book catalogue unavailable", { error: String(err) });
+  return new HttpsError("unavailable", "The book catalogue couldn't be reached. Please try again in a moment.");
 }
 
 /** Build a work from an edition when Open Library has no work record for it. */
@@ -385,27 +404,30 @@ async function resolveByIsbn(rawIsbn: string, store: BookStore, fetchImpl: Fetch
   return { workId, work, edition };
 }
 
-/** Edition details for an explicit ISBN given alongside a work key / volume id. */
+/**
+ * Edition details for an explicit ISBN given alongside a work key / volume id.
+ * The ISBN comes from the client, so it is only trusted (returned and cached in
+ * `isbnIndex`) when `verify` confirms it belongs to this work: the Open Library
+ * edition's work is this work, or the Google Books volume lists the ISBN.
+ * Otherwise the work's plain edition is returned (no ISBN) and nothing is cached.
+ */
 async function editionForIsbn(
   isbn: string,
   workId: string,
   work: WorkData,
   store: BookStore,
-  fetchImpl: FetchLike,
-  fallback: EditionInfo | null,
+  verify: () => Promise<EditionInfo | null>,
 ): Promise<EditionInfo> {
   const indexed = await store.getIsbn(isbn);
   if (indexed?.edition && indexed.workId === workId) return indexed.edition;
-  let edition: EditionInfo = fallback ? { ...fallback, isbn } : emptyEdition(isbn, work);
-  if (!fallback) {
-    try {
-      const ed = await fetchOpenLibraryEdition(isbn, fetchImpl);
-      if (ed) edition = ed.edition;
-    } catch {
-      /* best effort: edition details are optional */
-    }
+  let verified: EditionInfo | null = null;
+  try {
+    verified = await verify();
+  } catch {
+    /* best effort: unverified ISBNs are dropped */
   }
-  edition = withCoverFallback(edition, work);
+  if (!verified) return emptyEdition(null, work);
+  const edition = withCoverFallback({ ...verified, isbn }, work);
   if (!indexed) await store.setIsbn(isbn, { workId, edition });
   return edition;
 }
@@ -434,7 +456,10 @@ export async function resolveBook(
       work = await store.createWork(workId, fetched);
     }
     const edition = isbn
-      ? await editionForIsbn(isbn, workId, work, store, fetchImpl, null)
+      ? await editionForIsbn(isbn, workId, work, store, async () => {
+          const ed = await fetchOpenLibraryEdition(isbn, fetchImpl);
+          return ed && ed.workKey === key ? ed.edition : null;
+        })
       : emptyEdition(null, work);
     return { workId, work, edition };
   }
@@ -445,9 +470,8 @@ export async function resolveBook(
     const isbn = input.isbn ? requireIsbn(input.isbn) : null;
     const workId = gbWorkId(id);
     let work = await store.getWork(workId);
-    let gbEdition: EditionInfo | null = null;
+    let vol: GbVolume | null = null;
     if (!work) {
-      let vol: GbVolume | null;
       try {
         vol = await fetchGoogleBooksVolume(id, fetchImpl);
       } catch (err) {
@@ -456,11 +480,14 @@ export async function resolveBook(
       }
       if (!vol) throw new HttpsError("not-found", `Google Books has no volume ${id}.`);
       work = await store.createWork(workId, vol.work);
-      gbEdition = vol.edition;
     }
+    const fetched = vol;
     const edition = isbn
-      ? await editionForIsbn(isbn, workId, work, store, fetchImpl, gbEdition)
-      : gbEdition ?? emptyEdition(null, work);
+      ? await editionForIsbn(isbn, workId, work, store, async () => {
+          const v = fetched ?? (await fetchGoogleBooksVolume(id, fetchImpl));
+          return v && v.isbns.includes(isbn) ? v.edition : null;
+        })
+      : fetched?.edition ?? emptyEdition(null, work);
     return { workId, work, edition };
   }
 

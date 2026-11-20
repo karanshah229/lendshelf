@@ -1,8 +1,11 @@
+import { logger } from "firebase-functions";
 import { z } from "zod";
+import { trackedBulkWriter } from "../lib/bulk.js";
 import { ts, type Caller, type Deps } from "../lib/context.js";
 import { parseInput } from "../lib/errors.js";
 import { normalisePhone } from "../lib/phone.js";
 import { chunk } from "../lib/push.js";
+import { consumeQuota, SYNC_CONTACTS_QUOTA } from "../lib/rateLimit.js";
 import { COL, linkId, type LinkDoc, type PhoneIndexDoc, type ProfileDoc } from "../model.js";
 
 export const syncContactsSchema = z.object({
@@ -19,12 +22,14 @@ export interface SyncedLink {
 /**
  * Replace the caller's links with the app users found among `phones`.
  * One-way: only `links/{caller}_{owner}` docs are written. The phone list
- * itself is never stored.
+ * itself is never stored. Limited to 20 calls per user per rolling 24 hours
+ * (phone-number probing), counted in `rateLimits/{uid}`.
  */
 export async function syncContacts(deps: Deps, caller: Caller, data: unknown): Promise<{ links: SyncedLink[] }> {
   const { phones } = parseInput(syncContactsSchema, data);
   const { db } = deps;
   const uid = caller.uid;
+  await consumeQuota(db, uid, SYNC_CONTACTS_QUOTA, deps.now());
 
   const normalised = [...new Set(phones.map((p) => normalisePhone(p)).filter((p): p is string => p !== null))];
 
@@ -41,7 +46,7 @@ export async function syncContacts(deps: Deps, caller: Caller, data: unknown): P
 
   const existing = await db.collection(COL.links).where("viewerId", "==", uid).get();
   const now = ts(deps.now());
-  const writer = db.bulkWriter();
+  const writer = trackedBulkWriter(db);
   const existingOwners = new Set<string>();
   for (const d of existing.docs) {
     const link = d.data() as LinkDoc;
@@ -55,7 +60,14 @@ export async function syncContacts(deps: Deps, caller: Caller, data: unknown): P
     const link: LinkDoc = { viewerId: uid, ownerId, ownerPhone, createdAt: now };
     writer.set(db.collection(COL.links).doc(linkId(uid, ownerId)), link);
   }
-  await writer.close();
+  const failures = await writer.close();
+  if (failures.length > 0) {
+    logger.error("syncContacts: some link writes failed", {
+      uid,
+      failed: failures.length,
+      sample: failures.slice(0, 5).map((f) => ({ path: f.path, error: String(f.error) })),
+    });
+  }
 
   const owners = [...matches.keys()];
   const names = new Map<string, string>();

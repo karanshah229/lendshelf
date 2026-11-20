@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  BookSourceError,
+  FETCH_TIMEOUT_MS,
+  getJson,
   fetchGoogleBooksByIsbn,
   fetchOpenLibraryEdition,
   fetchOpenLibraryWork,
@@ -169,6 +172,7 @@ describe("Google Books fetcher", () => {
     const v = await fetchGoogleBooksByIsbn("9789386228017", fakeFetch(NAGAS_ROUTES).fn);
     expect(v).toEqual({
       volumeId: "x3qBDwAAQBAJ",
+      isbns: ["9789386228017"],
       work: {
         category: "book",
         source: "googlebooks",
@@ -319,5 +323,93 @@ describe("resolveBook", () => {
     expect(r.workId).toBe("gb_x3qBDwAAQBAJ");
     expect(r.work.title).toBe("The Secret of the Nagas");
     expect(r.edition.publisher).toBe("Westland");
+  });
+
+  it("unavailable errors carry no internal details", async () => {
+    const f = fakeFetch({
+      [`${OL}/isbn/9780000000002.json`]: { status: 500 },
+      [`${GB}?q=isbn:9780000000002`]: { status: 503 },
+    });
+    const err = await resolveBook({ isbn: "9780000000002" }, { store: mem.store, fetch: f.fn }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "unavailable" });
+    expect((err as { details?: unknown }).details).toBeUndefined();
+    expect((err as Error).message).not.toContain("openlibrary");
+  });
+});
+
+describe("resolveBook: ISBN given with a work key / volume id (must belong to it)", () => {
+  let mem: ReturnType<typeof memoryStore>;
+  const otherWork: WorkData = {
+    category: "book", source: "openlibrary", title: "Something Else", authors: ["X"], description: null,
+    coverUrl: "https://covers.openlibrary.org/b/id/1-L.jpg", firstPublishYear: 2000, isCustom: false, createdBy: null,
+  };
+  beforeEach(() => {
+    mem = memoryStore();
+  });
+
+  it("OL: an ISBN whose edition belongs to another work isn't stamped or cached", async () => {
+    await mem.store.createWork("ol_OL99W", otherWork);
+    const r = await resolveBook({ olWorkKey: "OL99W", isbn: "9780547928227" }, { store: mem.store, fetch: fakeFetch(HOBBIT_ROUTES).fn });
+    expect(r.workId).toBe("ol_OL99W");
+    expect(r.edition).toEqual({ isbn: null, coverUrl: otherWork.coverUrl, language: null, publisher: null, publishYear: null });
+    expect(mem.isbns.size).toBe(0);
+  });
+
+  it("OL: an ISBN Open Library doesn't know (or can't be reached for) isn't cached", async () => {
+    await mem.store.createWork("ol_OL99W", otherWork);
+    const r = await resolveBook({ olWorkKey: "OL99W", isbn: "9780000000002" }, { store: mem.store, fetch: fakeFetch({}).fn });
+    expect(r.edition.isbn).toBeNull();
+    const down = fakeFetch({ [`${OL}/isbn/9780000000002.json`]: new Error("ECONNRESET") });
+    const r2 = await resolveBook({ olWorkKey: "OL99W", isbn: "9780000000002" }, { store: mem.store, fetch: down.fn });
+    expect(r2.edition.isbn).toBeNull();
+    expect(mem.isbns.size).toBe(0);
+  });
+
+  it("GB: cached only when the volume lists the ISBN", async () => {
+    const ok = await resolveBook({ gbVolumeId: "x3qBDwAAQBAJ", isbn: "9789386228017" }, { store: mem.store, fetch: fakeFetch(NAGAS_ROUTES).fn });
+    expect(ok.edition.isbn).toBe("9789386228017");
+    expect(mem.isbns.get("9789386228017")?.workId).toBe("gb_x3qBDwAAQBAJ");
+
+    // Work now stored: the volume is fetched again to verify a different ISBN.
+    const f = fakeFetch(NAGAS_ROUTES);
+    const bad = await resolveBook({ gbVolumeId: "x3qBDwAAQBAJ", isbn: "9780547928227" }, { store: mem.store, fetch: f.fn });
+    expect(bad.edition.isbn).toBeNull();
+    expect(mem.isbns.has("9780547928227")).toBe(false);
+    expect(f.calls.map((c) => c.url)).toEqual([`${GB}/x3qBDwAAQBAJ`]);
+  });
+
+  it("an ISBN already indexed to another work is never overwritten", async () => {
+    await resolveBook({ isbn: "9780547928227" }, { store: mem.store, fetch: fakeFetch(HOBBIT_ROUTES).fn });
+    await mem.store.createWork("ol_OL99W", otherWork);
+    await resolveBook({ olWorkKey: "OL99W", isbn: "9780547928227" }, { store: mem.store, fetch: fakeFetch(HOBBIT_ROUTES).fn });
+    expect(mem.isbns.get("9780547928227")?.workId).toBe("ol_OL27482W");
+  });
+});
+
+describe("fetch timeouts", () => {
+  /** A fetch that never answers until its signal aborts. */
+  const hanging: FetchLike = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    });
+
+  it("getJson passes an abort signal and turns a timeout into a BookSourceError", async () => {
+    const started = Date.now();
+    await expect(getJson(hanging, "https://openlibrary.org/isbn/1.json", 50)).rejects.toBeInstanceOf(BookSourceError);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const seen: (AbortSignal | undefined)[] = [];
+    await getJson(async (_u, init) => {
+      seen.push(init?.signal);
+      return { ok: true, status: 200, json: async () => ({}) };
+    }, "https://x");
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+    expect(FETCH_TIMEOUT_MS).toBe(8000);
+  });
+
+  it("an Open Library timeout falls back to Google Books", async () => {
+    const timeout = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    const f = fakeFetch({ ...NAGAS_ROUTES, [`${OL}/isbn/9789386228017.json`]: timeout });
+    const r = await resolveBook({ isbn: "9789386228017" }, { store: memoryStore().store, fetch: f.fn });
+    expect(r.workId).toBe("gb_x3qBDwAAQBAJ");
   });
 });

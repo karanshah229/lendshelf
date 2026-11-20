@@ -1,6 +1,6 @@
 /** Push notification texts. Pure functions; `data.type` lets the app route taps. */
 import type { PushMessage } from "./push.js";
-import { shortDate } from "./loans.js";
+import { daysUntil, shortDate } from "./loans.js";
 
 export const msg = {
   loanRequested: (borrowerName: string, title: string, loanId: string): PushMessage => ({
@@ -48,10 +48,19 @@ export const msg = {
     body: `Your request to borrow ${title} expired without a reply.`,
     data: { type: "requestExpired", loanId },
   }),
-  dueSoon: (title: string, loanId: string, due: Date): PushMessage => ({
-    title: "Due soon",
-    body: `${title} is due back in 2 days (${shortDate(due)}).`,
-    data: { type: "dueSoon", loanId },
+  dueSoon: (title: string, loanId: string, due: Date, now: Date): PushMessage => {
+    const days = daysUntil(due, now);
+    const when = days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
+    return {
+      title: "Due soon",
+      body: `${title} is due back ${when} (${shortDate(due)}).`,
+      data: { type: "dueSoon", loanId },
+    };
+  },
+  itemRemoved: (ownerName: string, title: string, loanId: string): PushMessage => ({
+    title: "Request cancelled",
+    body: `${ownerName} removed ${title}.`,
+    data: { type: "itemRemoved", loanId },
   }),
   overdueBorrower: (title: string, loanId: string, due: Date): PushMessage => ({
     title: "Overdue",

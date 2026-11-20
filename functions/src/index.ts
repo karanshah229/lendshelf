@@ -16,12 +16,20 @@ import { REGION, TIME_ZONE, type ItemDoc } from "./model.js";
 import * as account from "./handlers/account.js";
 import * as books from "./handlers/books.js";
 import * as contacts from "./handlers/contacts.js";
+import * as devices from "./handlers/devices.js";
 import * as loans from "./handlers/loans.js";
 import * as shelves from "./handlers/shelves.js";
 import { onItemWrittenHandler } from "./handlers/triggers.js";
 import { runDailyMaintenance } from "./handlers/maintenance.js";
 
 setGlobalOptions({ region: REGION, maxInstances: 10 });
+
+/**
+ * App Check on callables is opt-in: set ENFORCE_APP_CHECK=true (e.g. in
+ * functions/.env) once the app sends App Check tokens. Off by default so the
+ * emulators and current builds keep working. Turn it on before production.
+ */
+const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === "true";
 
 type Handler<O> = (deps: Deps, caller: Caller, data: unknown) => Promise<O>;
 
@@ -33,7 +41,7 @@ function requireCaller(req: CallableRequest): Caller {
 
 /** Wrap a handler as an authenticated callable with consistent error handling. */
 function callable<O>(name: string, handler: Handler<O>) {
-  return onCall({ region: REGION }, async (req) => {
+  return onCall({ region: REGION, enforceAppCheck: ENFORCE_APP_CHECK }, async (req) => {
     const caller = requireCaller(req);
     try {
       return await handler(defaultDeps(), caller, req.data);
@@ -67,6 +75,8 @@ export const recordLoan = callable("recordLoan", loans.recordLoan);
 export const markReturned = callable("markReturned", loans.markReturned);
 export const confirmReturn = callable("confirmReturn", loans.confirmReturn);
 export const updateDueDate = callable("updateDueDate", loans.updateDueDate);
+export const registerPushToken = callable("registerPushToken", devices.registerPushToken);
+export const unregisterPushToken = callable("unregisterPushToken", devices.unregisterPushToken);
 export const deleteAccount = callable("deleteAccount", (deps, caller) => account.deleteAccount(deps, caller));
 
 // ---- Firestore trigger -------------------------------------------------------

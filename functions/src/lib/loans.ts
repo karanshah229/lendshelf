@@ -155,6 +155,13 @@ export function reminderKind(dueDate: Date, now: Date): ReminderKind | null {
   return null;
 }
 
+const isoDayIst = (d: Date): string => d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+/** Whole calendar days from `now` to `due` in India time (0 = today, 1 = tomorrow). */
+export function daysUntil(due: Date, now: Date): number {
+  return Math.round((Date.parse(isoDayIst(due)) - Date.parse(isoDayIst(now))) / DAY_MS);
+}
+
 /** "12 Dec" style short date in India time, for push text. */
 export function shortDate(d: Date): string {
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });

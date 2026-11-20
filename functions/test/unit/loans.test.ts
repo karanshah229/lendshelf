@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addDays,
+  daysUntil,
   assertActor,
   canTransition,
   isOpenStatus,
@@ -12,6 +13,7 @@ import {
   TRANSITIONS,
   type LoanAction,
 } from "../../src/lib/loans.js";
+import { msg } from "../../src/lib/messages.js";
 import { LOAN_STATUSES } from "../../src/model.js";
 
 const now = new Date("2026-11-21T03:30:00Z"); // 09:00 IST
@@ -112,5 +114,22 @@ describe("expiry and reminders", () => {
     expect(reminderKind(addDays(now, -3), now)).toBeNull();
     expect(reminderKind(new Date(addDays(now, -7).getTime() - HOUR), now)).toBe("overdue");
     expect(reminderKind(new Date(addDays(now, -14).getTime() - HOUR), now)).toBe("overdue");
+  });
+});
+
+describe("due-soon wording", () => {
+  it("counts whole calendar days in India time", () => {
+    // now = 21 Nov 09:00 IST
+    expect(daysUntil(new Date("2026-11-22T18:00:00Z"), now)).toBe(1); // 22 Nov 23:30 IST
+    expect(daysUntil(new Date("2026-11-23T00:00:00Z"), now)).toBe(2); // 23 Nov 05:30 IST
+    expect(daysUntil(new Date("2026-11-21T12:00:00Z"), now)).toBe(0);
+  });
+
+  it("says tomorrow for 1 day and 'in N days' otherwise", () => {
+    const tomorrow = msg.dueSoon("Dune", "L1", new Date("2026-11-22T18:00:00Z"), now);
+    expect(tomorrow.body).toBe("Dune is due back tomorrow (22 Nov).");
+    const twoDays = msg.dueSoon("Dune", "L1", new Date("2026-11-23T00:00:00Z"), now);
+    expect(twoDays.body).toBe("Dune is due back in 2 days (23 Nov).");
+    expect(twoDays.data).toEqual({ type: "dueSoon", loanId: "L1" });
   });
 });
