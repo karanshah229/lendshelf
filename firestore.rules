@@ -1,0 +1,298 @@
+rules_version = '2';
+
+// LendShelf Firestore rules. See SPEC.md §4.
+//
+// "Linked" means the reader has the owner's number saved, i.e.
+// links/{reader}_{owner} exists. Links are written only by syncContacts.
+//
+// Every client list query must be provable from its constraints:
+//   items   where ownerId == X && sharedWithContacts == true   (X linked)
+//   shelves where ownerId == X && isPublic == true             (X linked)
+//   items/shelves where ownerId == me
+//   loans   where ownerId == me  |  where borrowerUid == me
+//   links   where viewerId == me
+//   watches where uid == me
+//   reviews where authorId == me (or a linked author); reviews are normally
+//           read by id: reviews/{workId}_{uid}
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers ------------------------------------------------------------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    function docPath(collection, id) {
+      return /databases/$(database)/documents/$(collection)/$(id);
+    }
+
+    function linked(ownerId) {
+      return exists(docPath('links', request.auth.uid + '_' + ownerId));
+    }
+
+    function exactKeys(data, keys) {
+      return data.keys().hasAll(keys) && data.keys().hasOnly(keys);
+    }
+
+    function unchanged(keys) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(keys);
+    }
+
+    function isNullOrString(v, maxLen) {
+      return v == null || (v is string && v.size() <= maxLen);
+    }
+
+    function isNonEmptyString(v, maxLen) {
+      return v is string && v.size() >= 1 && v.size() <= maxLen;
+    }
+
+    function isStringList(v, maxSize) {
+      return v is list && v.size() <= maxSize;
+    }
+
+    // ---- users (private) -----------------------------------------------------
+
+    function validPushTokens(t) {
+      return t is list && t.size() <= 20;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && me() == uid;
+      // Normally created by the onUserCreated trigger; a client may create it
+      // only with its own verified phone number.
+      allow create: if signedIn() && me() == uid
+        && exactKeys(request.resource.data, ['phone', 'pushTokens', 'createdAt'])
+        && request.resource.data.phone == request.auth.token.phone_number
+        && validPushTokens(request.resource.data.pushTokens)
+        && request.resource.data.createdAt is timestamp;
+      allow update: if signedIn() && me() == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pushTokens'])
+        && validPushTokens(request.resource.data.pushTokens);
+      allow delete: if false;
+    }
+
+    // ---- profiles (public to signed-in users) --------------------------------
+
+    function validProfile(d) {
+      return exactKeys(d, ['name', 'pickupNote', 'createdAt', 'updatedAt'])
+        && isNonEmptyString(d.name, 60)
+        && isNullOrString(d.pickupNote, 200)
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    match /profiles/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && me() == uid && validProfile(request.resource.data);
+      allow update: if signedIn() && me() == uid && validProfile(request.resource.data)
+        && unchanged(['createdAt']);
+      allow delete: if false;
+    }
+
+    // ---- backend-only indexes ------------------------------------------------
+
+    match /phoneIndex/{phone} {
+      allow read, write: if false;
+    }
+
+    match /isbnIndex/{isbn} {
+      allow read, write: if false;
+    }
+
+    // ---- links: readable by the viewer only ----------------------------------
+
+    match /links/{linkId} {
+      allow read: if signedIn() && resource.data.viewerId == me();
+      allow write: if false;
+    }
+
+    // ---- works ----------------------------------------------------------------
+
+    function validCustomWork(d) {
+      return exactKeys(d, ['category', 'source', 'title', 'authors', 'description', 'coverUrl',
+                           'firstPublishYear', 'isCustom', 'createdBy', 'createdAt', 'updatedAt'])
+        && d.category == 'book'
+        && d.source == 'custom'
+        && d.isCustom == true
+        && d.createdBy == me()
+        && isNonEmptyString(d.title, 300)
+        && isStringList(d.authors, 20)
+        && isNullOrString(d.description, 5000)
+        && isNullOrString(d.coverUrl, 1000)
+        && (d.firstPublishYear == null || d.firstPublishYear is int)
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    match /works/{workId} {
+      // Catalogue works: any signed-in user. Custom works: creator + people who have the creator saved.
+      allow read: if signedIn() && (
+        resource.data.isCustom == false
+        || resource.data.createdBy == me()
+        || linked(resource.data.createdBy)
+      );
+      allow create: if signedIn() && workId.matches('custom_.+') && validCustomWork(request.resource.data);
+      allow update: if signedIn() && resource.data.isCustom == true && resource.data.createdBy == me()
+        && validCustomWork(request.resource.data)
+        && unchanged(['createdAt']);
+      allow delete: if signedIn() && resource.data.isCustom == true && resource.data.createdBy == me();
+    }
+
+    // ---- shelves ----------------------------------------------------------------
+
+    function validShelf(d) {
+      return exactKeys(d, ['ownerId', 'name', 'isPublic', 'sortOrder', 'createdAt', 'updatedAt'])
+        && d.ownerId == me()
+        && isNonEmptyString(d.name, 40)
+        && d.isPublic is bool
+        && d.sortOrder is number
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    match /shelves/{shelfId} {
+      allow read: if signedIn() && (
+        resource.data.ownerId == me()
+        || (resource.data.isPublic == true && linked(resource.data.ownerId))
+      );
+      allow create: if signedIn() && validShelf(request.resource.data);
+      // isPublic changes go through setShelfVisibility (it recomputes items).
+      allow update: if signedIn() && resource.data.ownerId == me()
+        && validShelf(request.resource.data)
+        && unchanged(['ownerId', 'isPublic', 'createdAt']);
+      // Deletion goes through deleteShelf (it moves the items).
+      allow delete: if false;
+    }
+
+    // ---- items (copies) -----------------------------------------------------------
+
+    function validItem(d) {
+      return exactKeys(d, ['ownerId', 'workId', 'category', 'shelfId', 'visibility', 'sharedWithContacts',
+                           'title', 'authors', 'coverUrl', 'isCustom', 'isbn', 'format', 'language',
+                           'loanState', 'dueDate', 'activeLoanId', 'createdAt', 'updatedAt'])
+        && d.ownerId == me()
+        && d.workId is string
+        && d.category == 'book'
+        && d.shelfId is string
+        && d.visibility in ['lendable', 'visible', 'hidden']
+        && d.sharedWithContacts is bool
+        && isNonEmptyString(d.title, 300)
+        && isStringList(d.authors, 20)
+        && isNullOrString(d.coverUrl, 1000)
+        && d.isCustom is bool
+        && isNullOrString(d.isbn, 20)
+        && (d.format == null || d.format in ['paperback', 'hardcover', 'other'])
+        && isNullOrString(d.language, 20)
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    // The shelf must be mine and sharedWithContacts must equal
+    // shelf.isPublic && visibility != 'hidden'. getAfter() so a shelf created
+    // in the same batch counts.
+    function shelfConsistent(d) {
+      let shelf = getAfter(docPath('shelves', d.shelfId));
+      return shelf != null
+        && shelf.data.ownerId == me()
+        && d.sharedWithContacts == (shelf.data.isPublic == true && d.visibility != 'hidden');
+    }
+
+    // The work must exist; isCustom must match it; a custom work must be mine.
+    function workConsistent(d) {
+      let work = getAfter(docPath('works', d.workId));
+      return work != null
+        && d.isCustom == work.data.isCustom
+        && (work.data.isCustom == false || work.data.createdBy == me());
+    }
+
+    match /items/{itemId} {
+      allow read: if signedIn() && (
+        resource.data.ownerId == me()
+        || (resource.data.sharedWithContacts == true && linked(resource.data.ownerId))
+      );
+      allow create: if signedIn()
+        && validItem(request.resource.data)
+        && request.resource.data.loanState == 'available'
+        && request.resource.data.dueDate == null
+        && request.resource.data.activeLoanId == null
+        && shelfConsistent(request.resource.data)
+        && workConsistent(request.resource.data);
+      // loanState / dueDate / activeLoanId are backend-only.
+      allow update: if signedIn() && resource.data.ownerId == me()
+        && validItem(request.resource.data)
+        && unchanged(['ownerId', 'workId', 'category', 'isCustom', 'loanState', 'dueDate', 'activeLoanId', 'createdAt'])
+        && shelfConsistent(request.resource.data);
+      allow delete: if signedIn() && resource.data.ownerId == me() && resource.data.loanState != 'lent';
+    }
+
+    // ---- loans: read by owner/borrower; all writes via callables ----------------
+
+    match /loans/{loanId} {
+      allow read: if signedIn() && (resource.data.ownerId == me() || resource.data.borrowerUid == me());
+      allow write: if false;
+    }
+
+    // ---- reviews/{workId}_{uid} ---------------------------------------------------
+
+    // Firebase Auth uids never contain '_', so the author is the last segment.
+    function reviewAuthor(id) {
+      let parts = id.split('_');
+      return parts[parts.size() - 1];
+    }
+
+    function validReview(d, id) {
+      return exactKeys(d, ['workId', 'authorId', 'authorName', 'rating', 'text', 'createdAt', 'updatedAt'])
+        && d.authorId == me()
+        && d.workId is string
+        && id == d.workId + '_' + me()
+        && isNonEmptyString(d.authorName, 60)
+        && d.rating is int && d.rating >= 1 && d.rating <= 5
+        && isNullOrString(d.text, 2000)
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    match /reviews/{reviewId} {
+      // By id: decided from the id alone, so a missing review reads as
+      // "doesn't exist" (not "permission denied") for linked readers.
+      allow get: if signedIn() && (reviewAuthor(reviewId) == me() || linked(reviewAuthor(reviewId)));
+      allow list: if signedIn() && (resource.data.authorId == me() || linked(resource.data.authorId));
+      allow create: if signedIn() && validReview(request.resource.data, reviewId)
+        && exists(docPath('works', request.resource.data.workId));
+      allow update: if signedIn() && resource.data.authorId == me()
+        && validReview(request.resource.data, reviewId)
+        && unchanged(['workId', 'authorId', 'createdAt']);
+      allow delete: if signedIn() && resource.data.authorId == me();
+    }
+
+    // ---- watches/{uid}_{type}_{targetId} (private) -----------------------------------
+
+    function validWatch(d, id) {
+      return exactKeys(d, ['uid', 'type', 'targetId', 'workId', 'title', 'createdAt'])
+        && d.uid == me()
+        && d.type in ['wishlist', 'back']
+        && d.targetId is string && d.targetId.size() > 0
+        && d.workId is string
+        && (d.type != 'wishlist' || d.targetId == d.workId)
+        && isNonEmptyString(d.title, 300)
+        && d.createdAt is timestamp
+        && id == d.uid + '_' + d.type + '_' + d.targetId;
+    }
+
+    match /watches/{watchId} {
+      // By id: the uid is the first segment, so "am I watching?" works for missing docs.
+      allow get: if signedIn() && watchId.split('_')[0] == me();
+      allow list: if signedIn() && resource.data.uid == me();
+      allow create: if signedIn() && validWatch(request.resource.data, watchId);
+      allow update: if signedIn() && resource.data.uid == me() && validWatch(request.resource.data, watchId);
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // Everything else (including the emulator-only _testPushes) is closed.
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "kind": "books#volume",
+  "id": "x3qBDwAAQBAJ",
+  "volumeInfo": {
+    "title": "The Secret of the Nagas",
+    "authors": ["Amish Tripathi"],
+    "publisher": "Westland",
+    "publishedDate": "2017-11-01",
+    "industryIdentifiers": [
+      { "type": "ISBN_13", "identifier": "9789386228017" }
+    ],
+    "language": "en",
+    "imageLinks": {
+      "thumbnail": "http://books.google.com/books/content?id=x3qBDwAAQBAJ&printsec=frontcover&img=1&zoom=1&edge=curl&source=gbs_api"
+    }
+  }
+}

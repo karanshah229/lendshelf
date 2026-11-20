@@ -1,0 +1,116 @@
+import { describe, expect, it } from "vitest";
+import {
+  addDays,
+  assertActor,
+  canTransition,
+  isOpenStatus,
+  isRequestExpired,
+  loanRole,
+  nextStatus,
+  reminderKind,
+  resolveDueDate,
+  TRANSITIONS,
+  type LoanAction,
+} from "../../src/lib/loans.js";
+import { LOAN_STATUSES } from "../../src/model.js";
+
+const now = new Date("2026-11-21T03:30:00Z"); // 09:00 IST
+const HOUR = 3600_000;
+
+describe("loan state machine", () => {
+  it("allows exactly the SPEC transitions", () => {
+    expect(nextStatus("requested", "accept")).toBe("active");
+    expect(nextStatus("requested", "decline")).toBe("declined");
+    expect(nextStatus("requested", "cancel")).toBe("cancelled");
+    expect(nextStatus("requested", "expire")).toBe("expired");
+    expect(nextStatus("active", "markReturned")).toBe("returnPending");
+    expect(nextStatus("active", "confirmReturn")).toBe("returned");
+    expect(nextStatus("returnPending", "confirmReturn")).toBe("returned");
+    expect(nextStatus("active", "updateDueDate")).toBe("active");
+  });
+
+  it("rejects everything else with failed-precondition", () => {
+    let allowed = 0;
+    for (const status of LOAN_STATUSES) {
+      for (const action of Object.keys(TRANSITIONS) as LoanAction[]) {
+        if (canTransition(status, action)) {
+          allowed++;
+          continue;
+        }
+        expect(() => nextStatus(status, action)).toThrowError(expect.objectContaining({ code: "failed-precondition" }));
+      }
+    }
+    expect(allowed).toBe(8);
+  });
+
+  it("gives a readable message", () => {
+    expect(() => nextStatus("returned", "markReturned")).toThrow(/already returned/);
+    expect(() => nextStatus("active", "cancel")).toThrow(/cancel this request/);
+  });
+
+  it("open statuses", () => {
+    expect(LOAN_STATUSES.filter(isOpenStatus)).toEqual(["requested", "active", "returnPending"]);
+  });
+});
+
+describe("actors", () => {
+  const loan = { ownerId: "o", borrowerUid: "b" };
+  it("finds the caller's role", () => {
+    expect(loanRole(loan, "o")).toBe("owner");
+    expect(loanRole(loan, "b")).toBe("borrower");
+    expect(loanRole(loan, "x")).toBeNull();
+    expect(loanRole({ ownerId: "o", borrowerUid: null }, "x")).toBeNull();
+  });
+
+  it("enforces who may act", () => {
+    expect(() => assertActor(loan, "o", "accept")).not.toThrow();
+    expect(() => assertActor(loan, "b", "accept")).toThrow(/Only the owner/);
+    expect(() => assertActor(loan, "b", "markReturned")).not.toThrow();
+    expect(() => assertActor(loan, "o", "markReturned")).toThrow(/Only the borrower/);
+    expect(() => assertActor(loan, "o", "cancel")).toThrow(/Only the borrower/);
+    expect(() => assertActor(loan, "x", "confirmReturn")).toThrowError(
+      expect.objectContaining({ code: "permission-denied" }),
+    );
+  });
+});
+
+describe("due dates", () => {
+  it("defaults to 21 days", () => {
+    expect(resolveDueDate(undefined, now)).toEqual(addDays(now, 21));
+    expect(resolveDueDate(null, now)).toEqual(addDays(now, 21));
+  });
+
+  it("accepts ISO dates, including today as a date-only value", () => {
+    expect(resolveDueDate("2026-12-12", now).toISOString()).toBe("2026-12-12T00:00:00.000Z");
+    expect(resolveDueDate("2026-11-21", now).toISOString()).toBe("2026-11-21T00:00:00.000Z");
+  });
+
+  it("rejects bad, past and far-future dates", () => {
+    expect(() => resolveDueDate("next tuesday", now)).toThrowError(expect.objectContaining({ code: "invalid-argument" }));
+    expect(() => resolveDueDate("2026-11-01", now)).toThrow(/past/);
+    expect(() => resolveDueDate("2028-01-01", now)).toThrow(/within a year/);
+  });
+});
+
+describe("expiry and reminders", () => {
+  it("requests expire after 7 days", () => {
+    expect(isRequestExpired(addDays(now, -6.9), now)).toBe(false);
+    expect(isRequestExpired(addDays(now, -7), now)).toBe(true);
+  });
+
+  it("due-soon fires once, in the 24-48h window", () => {
+    expect(reminderKind(new Date(now.getTime() + 47 * HOUR), now)).toBe("dueSoon");
+    expect(reminderKind(new Date(now.getTime() + 48 * HOUR), now)).toBe("dueSoon");
+    expect(reminderKind(new Date(now.getTime() + 49 * HOUR), now)).toBeNull();
+    expect(reminderKind(new Date(now.getTime() + 24 * HOUR), now)).toBeNull();
+    expect(reminderKind(new Date(now.getTime() + 5 * HOUR), now)).toBeNull();
+  });
+
+  it("overdue fires on day 0 and weekly after", () => {
+    expect(reminderKind(new Date(now.getTime() - 1 * HOUR), now)).toBe("overdue");
+    expect(reminderKind(addDays(now, -1), now)).toBeNull();
+    expect(reminderKind(addDays(now, -3), now)).toBeNull();
+    expect(reminderKind(new Date(addDays(now, -7).getTime() - HOUR), now)).toBe("overdue");
+    expect(reminderKind(new Date(addDays(now, -14).getTime() - HOUR), now)).toBe("overdue");
+  });
+});
