@@ -26,11 +26,21 @@ export interface BookCoverProps {
   className?: string;
 }
 
+/**
+ * Open Library serves S/M/L cover sizes; L images are ~5× heavier than M and
+ * load slowly in lists. Use M everywhere except the large hero cover.
+ */
+export function coverUriForSize(uri: string, size: keyof typeof SIZES): string {
+  if (size === 'lg') return uri;
+  return uri.replace(/(covers\.openlibrary\.org\/b\/(?:id|isbn|olid)\/[^/]+)-L\.jpg$/, '$1-M.jpg');
+}
+
 /** Book cover with a 2:3 aspect ratio and a tasteful placeholder when missing or broken. */
 export function BookCover({ uri, title, size = 'md', className }: BookCoverProps) {
   const [failed, setFailed] = useState(false);
   const s = SIZES[size];
   const showImage = !!uri && !failed;
+  const sourceUri = uri ? coverUriForSize(uri, size) : uri;
 
   return (
     <View
@@ -44,7 +54,7 @@ export function BookCover({ uri, title, size = 'md', className }: BookCoverProps
     >
       {showImage ? (
         <Image
-          source={{ uri }}
+          source={{ uri: sourceUri ?? undefined }}
           className="h-full w-full"
           contentFit="cover"
           transition={150}
