@@ -1,0 +1,237 @@
+/**
+ * Copy page for someone else's copy: status, Ask to borrow, Notify me when it's back,
+ * Message on WhatsApp, cancel my request.
+ */
+import { router } from 'expo-router';
+import {
+  BellOff,
+  BellRing,
+  BookLock,
+  ChevronRight,
+  Clock,
+  HandHelping,
+  MessageCircle,
+  type LucideIcon,
+} from 'lucide-react-native';
+import { useState, type ReactNode } from 'react';
+import { View } from 'react-native';
+
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Icon } from '@/components/ui/icon';
+import { Text } from '@/components/ui/text';
+import { useProfile } from '@/hooks/use-auth';
+import { useLoan } from '@/hooks/use-loans';
+import { api } from '@/lib/api';
+import { backLabel, dueLabel } from '@/lib/dates';
+import { toast, toastError } from '@/lib/toast';
+import { aboutBookMessage } from '@/lib/whatsapp';
+import { cn } from '@/lib/utils';
+import type { Item, WithId } from '@/types/model';
+
+import { AskDialog, type AskTarget } from '@/features/copy/AskDialog';
+import type { ViewerCopyState } from '@/features/copy/copy-actions';
+import { setWatchingBack } from '@/features/shared/mutations';
+import { capitalize } from '@/features/shared/people';
+import { ListRow, PersonAvatar, SectionHeader } from '@/features/shared/ui';
+import { openWhatsApp } from '@/features/shared/whatsapp-open';
+
+function StatusHero({
+  icon,
+  tone,
+  title,
+  detail,
+}: {
+  icon: LucideIcon;
+  tone: 'success' | 'warning' | 'muted' | 'info';
+  title: string;
+  detail?: string | null;
+}) {
+  const tones = {
+    success: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+    warning: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+    info: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
+    muted: 'bg-muted text-muted-foreground',
+  } as const;
+  return (
+    <View className="flex-row items-center gap-3">
+      <View className={cn('size-10 items-center justify-center rounded-full', tones[tone])}>
+        <Icon as={icon} size={20} className={tones[tone]} />
+      </View>
+      <View className="flex-1">
+        <Text className="font-semibold">{title}</Text>
+        {detail ? <Text className="text-sm text-muted-foreground">{detail}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+export function ViewerPanel({
+  item,
+  state,
+  uid,
+  ownerName,
+  ownerPhone,
+}: {
+  item: WithId<Item>;
+  state: ViewerCopyState;
+  uid: string;
+  ownerName: string;
+  ownerPhone: string | null;
+}) {
+  const { profile } = useProfile(item.ownerId);
+  const { loan: myBorrowLoan } = useLoan(state.myBorrow?.id);
+  const [askTarget, setAskTarget] = useState<AskTarget | null>(null);
+  const [busy, setBusy] = useState<'watch' | 'cancel' | null>(null);
+
+  const toggleWatch = async () => {
+    setBusy('watch');
+    try {
+      await setWatchingBack(uid, item, !state.watchingBack);
+      toast.success(
+        state.watchingBack ? 'You won’t be notified' : 'We’ll let you know when it’s back'
+      );
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cancelRequest = async () => {
+    if (!state.myRequest) return;
+    setBusy('cancel');
+    try {
+      await api.cancelRequest({ loanId: state.myRequest.id });
+      toast.success('Request cancelled');
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const message = () =>
+    ownerPhone && openWhatsApp(ownerPhone, aboutBookMessage({ ownerName, title: item.title }));
+
+  let hero: ReactNode;
+  if (state.myBorrow) {
+    hero = (
+      <StatusHero
+        icon={HandHelping}
+        tone="info"
+        title="You have this copy"
+        detail={
+          state.myBorrow.status === 'returnPending'
+            ? `Waiting for ${ownerName} to confirm the return`
+            : myBorrowLoan?.dueDate
+              ? capitalize(dueLabel(myBorrowLoan.dueDate))
+              : null
+        }
+      />
+    );
+  } else if (state.myRequest) {
+    hero = (
+      <StatusHero
+        icon={Clock}
+        tone="warning"
+        title="Request sent"
+        detail={`Waiting for ${ownerName} to accept`}
+      />
+    );
+  } else if (state.status.kind === 'available') {
+    hero = (
+      <StatusHero
+        icon={HandHelping}
+        tone="success"
+        title="Available to borrow"
+        detail={`${ownerName} is happy to lend this one`}
+      />
+    );
+  } else if (state.status.kind === 'lent') {
+    const label = backLabel(state.status.dueDate);
+    hero = (
+      <StatusHero
+        icon={Clock}
+        tone="muted"
+        title="Lent out"
+        detail={label === 'lent out' ? null : capitalize(label)}
+      />
+    );
+  } else {
+    hero = (
+      <StatusHero
+        icon={BookLock}
+        tone="muted"
+        title="Not up for lending"
+        detail={`${ownerName} has it on their shelf but isn’t lending it`}
+      />
+    );
+  }
+
+  return (
+    <View className="gap-6">
+      <Card className="gap-4 px-4 py-4">
+        {hero}
+        <View className="gap-2">
+          {state.canAsk ? (
+            <Button
+              size="lg"
+              onPress={() =>
+                setAskTarget({
+                  itemId: item.id,
+                  title: item.title,
+                  coverUrl: item.coverUrl,
+                  ownerName,
+                })
+              }
+            >
+              <Icon as={HandHelping} size={18} className="text-primary-foreground" />
+              <Text>Ask to borrow</Text>
+            </Button>
+          ) : null}
+          {state.myRequest ? (
+            <Button variant="outline" onPress={cancelRequest} disabled={busy === 'cancel'}>
+              <Text>{busy === 'cancel' ? 'Cancelling…' : 'Cancel request'}</Text>
+            </Button>
+          ) : null}
+          {state.canNotifyBack ? (
+            <Button
+              variant={state.watchingBack ? 'secondary' : 'outline'}
+              onPress={toggleWatch}
+              disabled={busy === 'watch'}
+            >
+              <Icon as={state.watchingBack ? BellOff : BellRing} size={16} />
+              <Text>{state.watchingBack ? 'Stop notifying me' : 'Notify me when it’s back'}</Text>
+            </Button>
+          ) : null}
+          {state.canMessage ? (
+            <Button variant="outline" onPress={message}>
+              <Icon as={MessageCircle} size={16} />
+              <Text>Message on WhatsApp</Text>
+            </Button>
+          ) : null}
+        </View>
+      </Card>
+
+      <View>
+        <SectionHeader title="Owner" />
+        <Card className="gap-0 py-0">
+          <ListRow
+            onPress={() =>
+              router.push({ pathname: '/person/[uid]', params: { uid: item.ownerId } })
+            }
+            leading={<PersonAvatar name={ownerName} />}
+            title={ownerName}
+            subtitle={
+              profile?.pickupNote ? `Pickup: ${profile.pickupNote}` : 'See their other books'
+            }
+            trailing={<Icon as={ChevronRight} size={16} className="text-muted-foreground" />}
+          />
+        </Card>
+      </View>
+
+      <AskDialog target={askTarget} onOpenChange={(open) => !open && setAskTarget(null)} />
+    </View>
+  );
+}

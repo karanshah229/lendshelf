@@ -36,6 +36,8 @@ export type { AuthUser, CallableFn, PhoneSignIn, Unsubscribe } from './types';
 export { USE_EMULATORS, EMULATOR_HOST, emulatorVerificationCodesUrl } from './config';
 
 export {
+  arrayRemove,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,

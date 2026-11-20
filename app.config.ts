@@ -71,6 +71,23 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     'expo-notifications',
+    [
+      'expo-camera',
+      {
+        cameraPermission:
+          'LendShelf uses the camera to scan the barcodes on your books so you can add them quickly.',
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'LendShelf lets you pick a photo to use as a book cover.',
+        cameraPermission: 'LendShelf lets you take a photo of a book to use as its cover.',
+        microphonePermission: false,
+      },
+    ],
   ],
   experiments: {
     typedRoutes: true,

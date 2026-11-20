@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 
+import { usePushRegistration } from '@/features/me/use-push-registration';
 import { useNotificationRouting } from '@/hooks/use-notification-routing';
 
 export const unstable_settings = { anchor: '(tabs)' };
@@ -7,6 +8,7 @@ export const unstable_settings = { anchor: '(tabs)' };
 /** Signed-in app: tabs plus detail screens pushed on top. Screens render their own ScreenHeader. */
 export default function AppLayout() {
   useNotificationRouting();
+  usePushRegistration();
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />

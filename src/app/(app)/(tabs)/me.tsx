@@ -1,19 +1,24 @@
+import Constants from 'expo-constants';
 import { router, type Href } from 'expo-router';
 import {
-  ChevronRight,
   Download,
   FolderCog,
   Heart,
+  Info,
   LogOut,
+  MapPin,
   Monitor,
   Moon,
+  Pencil,
+  Phone,
   RefreshCw,
+  ShieldCheck,
   Sun,
   Users,
   type LucideIcon,
 } from 'lucide-react-native';
-import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Platform, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
@@ -35,15 +40,25 @@ import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Text } from '@/components/ui/text';
 import { ToggleGroup, ToggleGroupIcon, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { ExportDialog } from '@/features/export/export-dialog';
+import { signOutAndCleanUp } from '@/features/me/account';
+import { DeleteAccountButton } from '@/features/me/delete-account-dialog';
+import { EditProfileDialog } from '@/features/me/edit-profile-dialog';
+import { NotificationsSection } from '@/features/me/notifications-section';
+import { Row, SectionLabel } from '@/features/me/rows';
 import { useAuth, useMyProfile } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { HAS_ADDRESS_BOOK } from '@/lib/contacts';
 import { timeAgo } from '@/lib/dates';
-import { signOut } from '@/lib/firebase';
 import { formatPhone } from '@/lib/phone';
 import { syncContactsNow } from '@/lib/sync-contacts';
 import { toast, toastError } from '@/lib/toast';
 import { useContactsStore } from '@/stores/contacts';
 import type { ThemePreference } from '@/stores/theme';
+
+const APP_VERSION = Constants.expoConfig?.version ?? '0.1.0';
+// Added by this change; typed routes regenerate when the dev server runs.
+const PRIVACY_HREF = '/privacy' as Href;
 
 function initials(name: string | undefined): string {
   if (!name) return '?';
@@ -51,48 +66,6 @@ function initials(name: string | undefined): string {
   return (
     (parts[0]?.[0] ?? '') + (parts.length > 1 ? (parts.at(-1)?.[0] ?? '') : '')
   ).toUpperCase();
-}
-
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Text className="px-1 pb-2 pt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-      {children}
-    </Text>
-  );
-}
-
-function Row({
-  icon,
-  label,
-  detail,
-  href,
-  onPress,
-  right,
-}: {
-  icon: LucideIcon;
-  label: string;
-  detail?: string;
-  href?: Href;
-  onPress?: () => void;
-  right?: ReactNode;
-}) {
-  const press = onPress ?? (href ? () => router.push(href) : undefined);
-  return (
-    <Pressable
-      onPress={press}
-      disabled={!press}
-      className="flex-row items-center gap-3 px-4 py-3.5 active:bg-accent"
-      accessibilityRole={press ? 'button' : undefined}
-    >
-      <Icon as={icon} size={18} className="text-muted-foreground" />
-      <View className="flex-1">
-        <Text className="text-sm font-medium">{label}</Text>
-        {detail ? <Text className="text-xs text-muted-foreground">{detail}</Text> : null}
-      </View>
-      {right ??
-        (press ? <Icon as={ChevronRight} size={16} className="text-muted-foreground" /> : null)}
-    </Pressable>
-  );
 }
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
@@ -108,7 +81,10 @@ export default function MeScreen() {
   const syncing = useContactsStore((s) => s.syncing);
   const linkCount = useContactsStore((s) => s.linkCount);
   const lastSyncedAt = useContactsStore((s) => s.lastSyncedAt);
+  const manualCount = useContactsStore((s) => s.manualContacts.length);
   const [signingOut, setSigningOut] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const resync = async () => {
     try {
@@ -117,7 +93,8 @@ export default function MeScreen() {
         router.push('/contacts');
         return;
       }
-      toast.success(`Contacts synced · ${res.links.length} on LendShelf`);
+      const n = res.links.length;
+      toast.success(`Contacts synced · ${n} ${n === 1 ? 'person' : 'people'} on LendShelf`);
     } catch (e) {
       toastError(e, 'Couldn’t sync contacts.');
     }
@@ -126,45 +103,83 @@ export default function MeScreen() {
   const doSignOut = async () => {
     setSigningOut(true);
     try {
-      await signOut();
+      await signOutAndCleanUp();
     } catch (e) {
       toastError(e);
       setSigningOut(false);
     }
   };
 
+  const contactsDetail = lastSyncedAt
+    ? `${linkCount} ${linkCount === 1 ? 'person' : 'people'} on LendShelf · synced ${timeAgo(lastSyncedAt)}`
+    : 'Not synced yet';
+
   return (
     <Screen safeBottom={false} header={<ScreenHeader large title="Me" />}>
-      <Card className="flex-row items-center gap-4 px-4 py-4">
-        <Avatar alt={profile?.name ?? 'You'} className="size-14">
-          <AvatarFallback>
-            <Text className="text-lg font-semibold">{initials(profile?.name)}</Text>
-          </AvatarFallback>
-        </Avatar>
-        <View className="flex-1 gap-0.5">
-          <Text className="text-lg font-semibold" numberOfLines={1}>
-            {profile?.name ?? '—'}
-          </Text>
-          <Text className="text-sm text-muted-foreground">
-            {user?.phoneNumber ? formatPhone(user.phoneNumber) : ''}
-          </Text>
-          {profile?.pickupNote ? (
-            <Text className="text-xs text-muted-foreground" numberOfLines={1}>
-              Pickup: {profile.pickupNote}
+      {/* Profile */}
+      <Card className="gap-0 py-0">
+        <View className="flex-row items-center gap-4 px-4 py-4">
+          <Avatar alt={profile?.name ?? 'You'} className="size-14">
+            <AvatarFallback>
+              <Text className="text-lg font-semibold">{initials(profile?.name)}</Text>
+            </AvatarFallback>
+          </Avatar>
+          <View className="flex-1 gap-0.5">
+            <Text className="text-lg font-semibold" numberOfLines={1}>
+              {profile?.name ?? '—'}
             </Text>
-          ) : null}
+            {user?.phoneNumber ? (
+              <View className="flex-row items-center gap-1.5">
+                <Icon as={Phone} size={12} className="text-muted-foreground" />
+                <Text className="text-sm text-muted-foreground">
+                  {formatPhone(user.phoneNumber)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          <Button
+            variant="outline"
+            size="sm"
+            onPress={() => setEditing(true)}
+            disabled={!profile}
+            accessibilityLabel="Edit profile"
+          >
+            <Icon as={Pencil} size={14} />
+            <Text>Edit</Text>
+          </Button>
+        </View>
+        <Separator />
+        <View className="flex-row items-start gap-3 px-4 py-3">
+          <Icon as={MapPin} size={16} className="mt-0.5 text-muted-foreground" />
+          <View className="flex-1 gap-0.5">
+            <Text className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Pickup note
+            </Text>
+            {profile?.pickupNote ? (
+              <Text className="text-sm leading-5">{profile.pickupNote}</Text>
+            ) : (
+              <Text
+                className="text-sm text-muted-foreground"
+                onPress={() => setEditing(true)}
+                accessibilityRole="button"
+              >
+                Add where and when people can pick up books
+              </Text>
+            )}
+          </View>
         </View>
       </Card>
 
+      {/* Contacts */}
       <SectionLabel>Contacts</SectionLabel>
       <Card className="gap-0 py-0">
         <Row
           icon={Users}
-          label="Contacts"
+          label={HAS_ADDRESS_BOOK ? 'Contacts' : 'Your contacts'}
           detail={
-            lastSyncedAt
-              ? `${linkCount} ${linkCount === 1 ? 'person' : 'people'} on LendShelf · synced ${timeAgo(lastSyncedAt)}`
-              : 'Not synced yet'
+            HAS_ADDRESS_BOOK
+              ? contactsDetail
+              : `${manualCount} added by hand · ${lastSyncedAt ? `${linkCount} on LendShelf` : 'not synced yet'}`
           }
           href="/contacts"
         />
@@ -172,13 +187,26 @@ export default function MeScreen() {
         <Row
           icon={RefreshCw}
           label={syncing ? 'Syncing…' : 'Sync now'}
+          detail={
+            HAS_ADDRESS_BOOK
+              ? 'Only numbers are checked; your address book is never stored'
+              : 'Web has no address book: add numbers under Your contacts'
+          }
           onPress={syncing ? undefined : resync}
-          right={syncing ? <ActivityIndicator size="small" /> : null}
+          right={syncing ? <ActivityIndicator size="small" /> : undefined}
         />
       </Card>
 
+      {/* Library */}
       <SectionLabel>Library</SectionLabel>
       <Card className="gap-0 py-0">
+        <Row
+          icon={Heart}
+          label="Wishlist"
+          detail="Books you’ll be told about when a contact adds them"
+          href="/wishlist"
+        />
+        <Separator />
         <Row
           icon={FolderCog}
           label="Collections"
@@ -187,15 +215,16 @@ export default function MeScreen() {
         />
         <Separator />
         <Row
-          icon={Heart}
-          label="Wishlist"
-          detail="Books you’ll be notified about"
-          href="/wishlist"
+          icon={Download}
+          label="Export"
+          detail={Platform.OS === 'web' ? 'Download CSV or JSON' : 'Share a CSV or JSON file'}
+          onPress={() => setExporting(true)}
         />
-        <Separator />
-        <Row icon={Download} label="Export" detail="CSV or JSON (coming soon)" />
       </Card>
 
+      <NotificationsSection />
+
+      {/* Appearance */}
       <SectionLabel>Appearance</SectionLabel>
       <Card className="px-4 py-4">
         <ToggleGroup
@@ -221,11 +250,29 @@ export default function MeScreen() {
         </ToggleGroup>
       </Card>
 
-      <View className="mt-8 gap-3">
+      {/* About */}
+      <SectionLabel>About</SectionLabel>
+      <Card className="gap-0 py-0">
+        <Row
+          icon={ShieldCheck}
+          label="Privacy policy"
+          detail="What we store and how to delete it"
+          href={PRIVACY_HREF}
+        />
+        <Separator />
+        <Row
+          icon={Info}
+          label="LendShelf"
+          detail="A private lending library for friends and family"
+          right={<Text className="text-sm text-muted-foreground">v{APP_VERSION}</Text>}
+        />
+      </Card>
+
+      <View className="mt-8 gap-2">
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" disabled={signingOut}>
-              <Icon as={LogOut} size={16} />
+              {signingOut ? <ActivityIndicator size="small" /> : <Icon as={LogOut} size={16} />}
               <Text>{signingOut ? 'Signing out…' : 'Sign out'}</Text>
             </Button>
           </AlertDialogTrigger>
@@ -247,8 +294,16 @@ export default function MeScreen() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        <Text className="text-center text-xs text-muted-foreground">LendShelf 0.1.0</Text>
+        <DeleteAccountButton />
       </View>
+
+      <EditProfileDialog
+        open={editing}
+        onOpenChange={setEditing}
+        name={profile?.name ?? ''}
+        pickupNote={profile?.pickupNote ?? null}
+      />
+      <ExportDialog open={exporting} onOpenChange={setExporting} />
     </Screen>
   );
 }
