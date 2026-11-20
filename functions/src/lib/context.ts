@@ -1,0 +1,91 @@
+/**
+ * Runtime dependencies for handlers. Production code uses `defaultDeps()`;
+ * tests build their own with fakes (push sender, clock, fetch).
+ */
+import { getApps, initializeApp, type App } from "firebase-admin/app";
+import { getAuth, type Auth } from "firebase-admin/auth";
+import { FieldValue, getFirestore, Timestamp, type Firestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
+import { logger } from "firebase-functions";
+import type { FetchLike } from "./books.js";
+import { createPushSender, expoTransport, type PushSender } from "./push.js";
+import { COL, type UserDoc } from "../model.js";
+
+export interface Deps {
+  db: Firestore;
+  auth: Auth;
+  now: () => Date;
+  push: PushSender;
+  fetch: FetchLike;
+  /** Delete everything under `covers/{uid}/` in Cloud Storage. */
+  deleteUserFiles: (uid: string) => Promise<void>;
+}
+
+export interface Caller {
+  uid: string;
+  /** `phone_number` claim from the ID token, if present. */
+  phone: string | null;
+}
+
+export function adminApp(): App {
+  return getApps()[0] ?? initializeApp();
+}
+
+export const isEmulator = (): boolean => process.env.FUNCTIONS_EMULATOR === "true";
+
+/** Reads Expo push tokens from `users/{uid}.pushTokens`. */
+export function firestoreTokenLookup(db: Firestore) {
+  return async (uids: string[]): Promise<string[]> => {
+    if (uids.length === 0) return [];
+    const snaps = await db.getAll(...uids.map((u) => db.collection(COL.users).doc(u)));
+    return snaps.flatMap((s) => {
+      const tokens = (s.data() as Partial<UserDoc> | undefined)?.pushTokens;
+      return Array.isArray(tokens) ? tokens : [];
+    });
+  };
+}
+
+/** Emulator test hook: every push is recorded in `_testPushes`. */
+export function firestorePushRecorder(db: Firestore) {
+  return async (r: { uids: string[]; message: { title: string; body: string; data?: Record<string, string> }; tokenCount: number }) => {
+    await db.collection(COL.testPushes).add({
+      uids: r.uids,
+      title: r.message.title,
+      body: r.message.body,
+      data: r.message.data ?? {},
+      tokenCount: r.tokenCount,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  };
+}
+
+let cached: Deps | null = null;
+
+export function defaultDeps(): Deps {
+  if (cached) return cached;
+  const app = adminApp();
+  const db = getFirestore(app);
+  const fetchImpl = globalThis.fetch.bind(globalThis);
+  cached = {
+    db,
+    auth: getAuth(app),
+    now: () => new Date(),
+    fetch: fetchImpl as unknown as FetchLike,
+    push: createPushSender({
+      getTokens: firestoreTokenLookup(db),
+      transport: expoTransport(fetchImpl),
+      emulator: isEmulator(),
+      recorder: firestorePushRecorder(db),
+    }),
+    deleteUserFiles: async (uid) => {
+      try {
+        await getStorage(app).bucket().deleteFiles({ prefix: `covers/${uid}/` });
+      } catch (err) {
+        logger.warn("Deleting cover photos failed", { uid, error: String(err) });
+      }
+    },
+  };
+  return cached;
+}
+
+export const ts = (d: Date): Timestamp => Timestamp.fromDate(d);
