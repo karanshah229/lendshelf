@@ -65,12 +65,10 @@ service cloud.firestore {
         && authorAt(v, 15) && authorAt(v, 16) && authorAt(v, 17) && authorAt(v, 18) && authorAt(v, 19);
     }
 
-    // Cover images may only come from the book catalogues, our own Storage
-    // bucket, or (local development) the Storage emulator.
+    // Cover images may only come from the book catalogues or our own Storage bucket.
     function validCoverUrl(v) {
       return v == null || (v is string && v.size() <= 1000 && v.matches(
-        '(https://(covers[.]openlibrary[.]org|books[.]google[.]com|books[.]googleusercontent[.]com|firebasestorage[.]googleapis[.]com)/'
-        + '|http://(127[.]0[.]0[.]1|localhost|10[.]0[.]2[.]2):[0-9]+/).*'));
+        'https://(covers[.]openlibrary[.]org|books[.]google[.]com|books[.]googleusercontent[.]com|firebasestorage[.]googleapis[.]com)/.*'));
     }
 
     // Client timestamps must be serverTimestamp().
@@ -345,6 +343,6 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.uid == me();
     }
 
-    // Everything else (including the emulator-only _testPushes) is closed.
+    // Everything else (including the test-only _testPushes) is closed.
   }
 }

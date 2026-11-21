@@ -1,9 +1,8 @@
 /**
  * Shared helpers for integration tests. They run against the emulators started
  * by `firebase emulators:exec --config ../firebase.test.json` (auth, firestore,
- * functions, storage on shifted ports), which sets the *_EMULATOR_HOST env vars.
- * The fallbacks are the test ports, never the dev ports, so a stray run can't
- * wipe the dev emulators' data.
+ * functions, storage), which sets the *_EMULATOR_HOST env vars. The fallbacks
+ * are the same test ports, so a stray run only ever talks to local emulators.
  */
 process.env.GCLOUD_PROJECT ??= "demo-lendshelf";
 process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:18080";

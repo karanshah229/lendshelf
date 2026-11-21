@@ -5,12 +5,11 @@ import { ActivityIndicator, View } from 'react-native';
 
 import { AuthShell } from '@/components/auth-shell';
 import { PhoneInput } from '@/components/phone-input';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Text } from '@/components/ui/text';
 import { errorMessage } from '@/lib/errors';
-import { startPhoneSignIn, USE_EMULATORS } from '@/lib/firebase';
+import { startPhoneSignIn } from '@/lib/firebase';
 import { normalisePhone, type CountryCode } from '@/lib/phone';
 import { usePhoneAuthStore } from '@/stores/phone-auth';
 
@@ -80,16 +79,6 @@ export default function PhoneScreen() {
         />
         {error ? <Text className="text-sm text-destructive">{error}</Text> : null}
       </View>
-      {USE_EMULATORS ? (
-        <View className="flex-row items-center gap-2">
-          <Badge variant="warning">
-            <Text>Emulator</Text>
-          </Badge>
-          <Text className="flex-1 text-xs text-muted-foreground">
-            No real SMS is sent. Any number works; the next screen can fetch the code.
-          </Text>
-        </View>
-      ) : null}
     </AuthShell>
   );
 }

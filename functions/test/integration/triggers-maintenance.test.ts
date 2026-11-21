@@ -178,7 +178,7 @@ describe("onItemWritten: late delete trigger (QA B5)", () => {
   };
 
   it("leaves the requests alone when the copy exists again under the same id", async () => {
-    // The copy exists (written again after the delete, as the emulator seed does): kept.
+    // The copy exists (written again after the delete): kept.
     const itemId = await addItem(asha.uid);
     const again = await request(itemId);
     await cancelRequestsForDeletedItem(deps(), itemId);

@@ -31,7 +31,14 @@ export function adminApp(): App {
   return getApps()[0] ?? initializeApp();
 }
 
-export const isEmulator = (): boolean => process.env.FUNCTIONS_EMULATOR === "true";
+/**
+ * Test support: true only inside the throwaway Functions emulator that the
+ * backend test scripts start (`--project demo-lendshelf`). FUNCTIONS_EMULATOR
+ * is set only by the emulator, and `demo-*` project ids can't exist in Cloud,
+ * so this is always false on a real project.
+ */
+export const isTestEmulator = (): boolean =>
+  process.env.FUNCTIONS_EMULATOR === "true" && (process.env.GCLOUD_PROJECT ?? "").startsWith("demo-");
 
 /** Reads Expo push tokens from `users/{uid}.pushTokens`. */
 export function firestoreTokenLookup(db: Firestore) {
@@ -56,7 +63,7 @@ export function firestoreTokenRemover(db: Firestore) {
   };
 }
 
-/** Emulator test hook: every push is recorded in `_testPushes`. */
+/** Test support: in the test emulator every push is recorded in `_testPushes` for the integration tests. */
 export function firestorePushRecorder(db: Firestore) {
   return async (r: { uids: string[]; message: { title: string; body: string; data?: Record<string, string> }; tokenCount: number }) => {
     await db.collection(COL.testPushes).add({
@@ -85,7 +92,7 @@ export function defaultDeps(): Deps {
     push: createPushSender({
       getTokens: firestoreTokenLookup(db),
       transport: expoTransport(fetchImpl),
-      emulator: isEmulator(),
+      emulator: isTestEmulator(),
       recorder: firestorePushRecorder(db),
       removeTokens: firestoreTokenRemover(db),
     }),

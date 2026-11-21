@@ -1,32 +1,20 @@
 import { Redirect, router } from 'expo-router';
-import { MessageSquareText, Wand2 } from 'lucide-react-native';
+import { MessageSquareText } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 
 import { AuthShell } from '@/components/auth-shell';
 import { OtpInput } from '@/components/otp-input';
 import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { errorMessage } from '@/lib/errors';
-import { emulatorVerificationCodesUrl, startPhoneSignIn, USE_EMULATORS } from '@/lib/firebase';
+import { startPhoneSignIn } from '@/lib/firebase';
 import { formatPhone } from '@/lib/phone';
 import { toast } from '@/lib/toast';
 import { usePhoneAuthStore } from '@/stores/phone-auth';
 
 const CODE_LENGTH = 6;
 const RESEND_AFTER_S = 30;
-
-/** Reads the latest code the Auth emulator "sent" to `phone`. */
-async function fetchEmulatorCode(phone: string): Promise<string | null> {
-  const res = await fetch(emulatorVerificationCodesUrl());
-  if (!res.ok) throw new Error(`Auth emulator returned ${res.status}`);
-  const body = (await res.json()) as {
-    verificationCodes?: { phoneNumber: string; code: string }[];
-  };
-  const matches = (body.verificationCodes ?? []).filter((c) => c.phoneNumber === phone);
-  return matches.at(-1)?.code ?? null;
-}
 
 export default function CodeScreen() {
   const phone = usePhoneAuthStore((s) => s.phone);
@@ -36,7 +24,6 @@ export default function CodeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
-  const [fetchingCode, setFetchingCode] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -79,23 +66,6 @@ export default function CodeScreen() {
       setError(errorMessage(e, 'Couldn’t resend the code.'));
     } finally {
       setResending(false);
-    }
-  };
-
-  const fillFromEmulator = async () => {
-    setFetchingCode(true);
-    try {
-      const found = await fetchEmulatorCode(phone);
-      if (!found) {
-        toast.error('No code found for this number yet');
-        return;
-      }
-      setCode(found);
-      void verify(found);
-    } catch {
-      toast.error('Couldn’t reach the Auth emulator');
-    } finally {
-      setFetchingCode(false);
     }
   };
 
@@ -150,17 +120,6 @@ export default function CodeScreen() {
         invalid={!!error}
       />
       {error ? <Text className="text-sm text-destructive">{error}</Text> : null}
-      {USE_EMULATORS ? (
-        <View className="gap-3 rounded-lg border border-dashed border-border bg-muted/40 p-4">
-          <Text className="text-sm text-muted-foreground">
-            Running against the Firebase emulators — no SMS is sent.
-          </Text>
-          <Button variant="outline" onPress={fillFromEmulator} disabled={fetchingCode || verifying}>
-            <Icon as={Wand2} size={16} />
-            <Text>{fetchingCode ? 'Fetching…' : 'Use code from emulator'}</Text>
-          </Button>
-        </View>
-      ) : null}
     </AuthShell>
   );
 }

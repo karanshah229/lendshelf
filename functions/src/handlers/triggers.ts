@@ -14,10 +14,10 @@ export function becameShared(before: ItemDoc | undefined, after: ItemDoc | undef
  * so a request accepted or declined meanwhile is left alone. Returns the
  * notified uids.
  *
- * Triggers run late (seconds, or more in the emulator), so the copy is read
- * again first: if it exists again under the same id (the emulator seed after
- * a wipe), its requests are left alone (QA B5). `event.time` can't be used
- * instead: the emulator sets it when it dispatches the event, to the second.
+ * Triggers can run seconds late, so the copy is read again first: if it
+ * exists again under the same id (deleted and rewritten meanwhile), its
+ * requests are left alone (QA B5). `event.time` can't be used instead: the
+ * test emulator sets it at dispatch time, to the second.
  */
 export async function cancelRequestsForDeletedItem(deps: Deps, itemId: string): Promise<string[]> {
   const { db } = deps;

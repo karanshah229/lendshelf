@@ -8,22 +8,16 @@ const APP_ID = 'com.lendshelf.app';
 
 /**
  * Which Firebase project a build talks to (read when the app is bundled or prebuilt):
- *   emulator: the local Emulator Suite (`demo-lendshelf`); placeholder config files in the repo root.
- *   dev / prod: the real `lendshelf-dev` / `lendshelf-prod` projects; config files come from
- *   firebase-config/<env>/ (git-ignored; `npm run firebase:config` downloads them).
- * Default: emulator when EXPO_PUBLIC_USE_EMULATORS=1, otherwise dev. Prod is never implicit.
+ *   dev: `lendshelf-dev` (the default); prod: `lendshelf-prod` (never implicit).
+ * Config files come from firebase-config/<env>/ (git-ignored; `npm run firebase:config`
+ * downloads them).
  */
-const APP_ENV =
-  process.env.APP_ENV ?? (process.env.EXPO_PUBLIC_USE_EMULATORS === '1' ? 'emulator' : 'dev');
-if (!['emulator', 'dev', 'prod'].includes(APP_ENV)) {
-  throw new Error(`APP_ENV must be emulator, dev or prod (got "${APP_ENV}")`);
-}
-if (APP_ENV !== 'emulator' && process.env.EXPO_PUBLIC_USE_EMULATORS === '1') {
-  throw new Error(`APP_ENV=${APP_ENV} can't be combined with EXPO_PUBLIC_USE_EMULATORS=1`);
+const APP_ENV = process.env.APP_ENV || 'dev';
+if (APP_ENV !== 'dev' && APP_ENV !== 'prod') {
+  throw new Error(`APP_ENV must be dev or prod (got "${APP_ENV}")`);
 }
 
 function firebaseFile(name: string): string {
-  if (APP_ENV === 'emulator') return `./${name}`;
   const path = `./firebase-config/${APP_ENV}/${name}`;
   if (!existsSync(path)) {
     throw new Error(`Missing ${path}. Run \`npm run firebase:config\` (needs the Firebase CLI login).`);
@@ -31,9 +25,8 @@ function firebaseFile(name: string): string {
   return path;
 }
 
-/** Web SDK config for dev/prod web builds; null for the emulator (config.ts uses demo values). */
-function webConfig(): Record<string, string> | null {
-  if (APP_ENV === 'emulator') return null;
+/** Web SDK config of the registered web app (src/lib/firebase/config.ts reads it on web). */
+function webConfig(): Record<string, string> {
   return JSON.parse(readFileSync(firebaseFile('web.json'), 'utf8')) as Record<string, string>;
 }
 
@@ -64,12 +57,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       monochromeImage: './assets/images/android-icon-monochrome.png',
     },
     predictiveBackGestureEnabled: false,
-    // Android 17+ needs this runtime permission to reach the emulators on 10.0.2.2 / a LAN IP
-    // (src/lib/firebase/index.native.ts asks for it). Only emulator builds declare it; debug
-    // builds get it from React Native's dev support anyway.
-    ...(process.env.EXPO_PUBLIC_USE_EMULATORS === '1'
-      ? { permissions: ['android.permission.ACCESS_LOCAL_NETWORK'] }
-      : {}),
   },
   web: {
     output: 'single',
@@ -95,9 +82,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         // dynamic frameworks (static linkage makes `pod install` fail).
         ios: { useFrameworks: 'dynamic' },
         android: {
-          // The Auth/Firestore emulators run over plain HTTP on 10.0.2.2 in development.
-          // Production builds keep Android's default (HTTPS only).
-          usesCleartextTraffic: process.env.EXPO_PUBLIC_USE_EMULATORS === '1',
           // React Native Firebase v27 pulls Firebase BoM 35 (firebase-auth 25), whose Kotlin
           // metadata is 2.4. RN's default Kotlin 2.2 compiler can't read it ("Module was compiled
           // with an incompatible version of Kotlin"); 2.3 can (one version forward-compatible).

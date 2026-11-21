@@ -1,24 +1,25 @@
 # LendShelf backend (Firebase)
 
-Cloud Functions (TypeScript, Node 22, region `asia-south1`), Firestore and Storage security rules, tests and demo seed data. The contract is `SPEC.md` §3–5 at the repo root.
+Cloud Functions (TypeScript, Node 22, region `asia-south1`), Firestore and Storage security rules, and their tests. The contract is `SPEC.md` §3–5 at the repo root.
+
+There is no local emulator for running the app: the app talks to the real `lendshelf-dev` / `lendshelf-prod` projects. The only emulator is the throwaway one the backend tests start.
 
 | Path | What |
 |---|---|
-| `../firebase.json`, `../.firebaserc` | Emulator ports, functions source, rules files. Default project `demo-lendshelf`. |
-| `../firebase.test.json` | Same, with every emulator port shifted (+10000) and no UI: used by the test scripts so they can run while `serve` is up. |
+| `../firebase.json`, `../.firebaserc` | Functions source, rules files; project aliases `dev` and `prod` (no default project). |
+| `../firebase.test.json` | Test-only config: the same, plus the emulator ports the test scripts use (no UI). |
 | `../firestore.rules`, `../storage.rules`, `../firestore.indexes.json` | Security rules and indexes |
 | `src/index.ts` | Function exports (wiring only) |
 | `src/handlers/*` | One module per area: account, contacts, books, shelves, loans, triggers, maintenance |
 | `src/lib/*` | Pure helpers: loan state machine, phone/ISBN normalisation, book lookup (injectable `fetch`), push sending (injectable transport) |
 | `src/model.ts` | Firestore document types (mirrors SPEC §3) |
 | `test/unit`, `test/rules`, `test/integration` | Vitest suites |
-| `scripts/seed.ts` | Demo data for running emulators |
 | `scripts/firebase.mjs` | Runs the local `firebase-tools` with a Java 21+ runtime (see below) |
 
 ## Requirements
 
 - Node 22, npm 10. `npm install` here installs `firebase-tools` locally; no global install is needed.
-- **Java 21 or newer** for the emulators (firebase-tools 15 refuses older Java). `scripts/firebase.mjs` uses `JAVA_HOME` / `PATH` if it is new enough, otherwise it looks for a newer JDK (Android Studio's bundled JBR, common JDK folders) or `LENDSHELF_JAVA_HOME`. On Windows it also sets `-Djdk.net.unixdomain.tmpdir=functions/.tmp`, which fixes the Firestore emulator crashing with "Unable to establish loopback connection". It also sets `FUNCTIONS_DISCOVERY_TIMEOUT=60` (seconds; the default 10 s is too short on a busy machine, e.g. tests running next to `serve`).
+- **Java 21 or newer** for the test emulators (firebase-tools 15 refuses older Java; deploying doesn't need Java). `scripts/firebase.mjs` uses `JAVA_HOME` / `PATH` if it is new enough, otherwise it looks for a newer JDK (Android Studio's bundled JBR, common JDK folders) or `LENDSHELF_JAVA_HOME`. On Windows it also sets `-Djdk.net.unixdomain.tmpdir=functions/.tmp`, which fixes the Firestore emulator crashing with "Unable to establish loopback connection". It also sets `FUNCTIONS_DISCOVERY_TIMEOUT=60` (seconds; the default 10 s is too short on a busy machine).
 
 ## Commands
 
@@ -27,40 +28,20 @@ Run from the repo root with `npm --prefix functions run <script>`, or from this 
 | Script | What it does |
 |---|---|
 | `build` | `tsc` to `lib/` (strict) |
-| `serve` | Build, then start all emulators: Auth 9099, Firestore 8080, Functions 5001, Storage 9199, UI http://127.0.0.1:4000 |
-| `seed` | Wipe Firestore + Auth emulator data and load demo data. Needs `serve` running in another terminal. Idempotent. |
 | `test:unit` | Pure helper tests. No emulators. |
-| `test:rules` | Firestore + Storage rules tests (starts its own emulators via `emulators:exec`) |
-| `test:integration` | Build, then call the deployed-in-emulator callables with the Firebase JS SDK |
+| `test:rules` | Firestore + Storage rules tests (starts its own throwaway emulators via `emulators:exec`) |
+| `test:integration` | Build, then call the functions, loaded in the throwaway emulator, with the Firebase JS SDK |
 | `test` | All three |
-| `firebase -- <args>` | Any firebase-tools command with the right Java, e.g. `npm run firebase -- emulators:start --only firestore` |
+| `firebase -- <args>` | Any firebase-tools command with the right Java, e.g. `npm run firebase -- functions:log --project dev`. Always pass `--project`: there is no default project. |
 | `deploy:dev`, `deploy:prod` | Deploy Firestore rules + indexes, Storage rules and all functions to `lendshelf-dev` / `lendshelf-prod`. See "Deploying to dev / prod". |
 | `deploy:{dev,prod}:dry-run` | Same, with `--dry-run` (validates and builds, deploys nothing; **does** enable missing APIs, so only after Blaze) |
 | `deploy:{dev,prod}:firestore` / `:storage` / `:functions` | One part only |
 
-The `test*` scripts start their own emulators from `../firebase.test.json` (Auth 19099, Firestore 18080, Functions 15001, Storage 19199, hub 14400, logging 14500, Firestore websocket 19150), so they never touch the data of a running `serve`. The integration helpers read the Functions port from the emulator hub.
-
-Stop `serve` with Ctrl+C. `serve` needs ports 4000, 4400, 4500, 5001, 8080, 9099, 9150, 9199 free; `test:*` need 14400, 14500, 15001, 18080, 19099, 19150, 19199, 19299, 19499.
-
-The emulators bind to `127.0.0.1`. The Android emulator reaches them at `10.0.2.2`. For a physical phone on your Wi-Fi, change the `host` values in `../firebase.json` to `0.0.0.0` and point the app at your computer's LAN IP.
-
-### Demo users (after `seed`)
-
-| Name | Phone | uid |
-|---|---|---|
-| Asha Rao | +919000000001 | demo-asha |
-| Ravi Menon | +919000000002 | demo-ravi |
-| Meera Iyer | +919000000003 | demo-meera |
-| Kabir Shah | +919000000004 | demo-kabir |
-| Zoya Khan | +919000000005 | demo-zoya |
-
-Everyone has everyone saved except that **Asha does not have Zoya** (Zoya has Asha: a one-way link). The seed includes 28 real Open Library works (plus their ISBNs in `isbnIndex`) and 1 custom book, 69 copies (some `visible` or `hidden`, one private shelf each for Asha and Kabir), and loans in every status: requested (one copy, Asha's Sapiens, has two open requests, from Ravi and Kabir), active, due in 2 days, overdue, returnPending, returned, lent to a non-app person, declined (with reason `readingIt`, and one `lentToSomeoneElse` with the server-created back-watch), cancelled, closed as not collected (`cancelled` + `closedReason: "notCollected"`), expired, and `ownerLeft` (Meera still has Animal Farm from "Dev Patel", a deleted account). It also has 14 reviews and 5 watches.
-
-Sign-in codes: the Auth emulator never sends SMS; read the code from `GET http://127.0.0.1:9099/emulator/v1/projects/demo-lendshelf/verificationCodes`.
+The emulator is test infrastructure only. The `test*` scripts start it from `../firebase.test.json` with `--project demo-lendshelf` (a `demo-*` id can't reach any real project), wipe its data between tests and stop it when they finish. Ports: Auth 19099, Firestore 18080 (websocket 19150), Functions 15001, Storage 19199, hub 14400, logging 14500, Eventarc 19299, Tasks 19499; they must be free. The integration helpers read the Functions port from the emulator hub.
 
 ## Deploying to dev / prod
 
-Aliases in `../.firebaserc`: `dev` = `lendshelf-dev`, `prod` = `lendshelf-prod`, `default` = `demo-lendshelf` (emulators only, so a bare `firebase deploy` can't reach a real project). Every deploy script names its project; nothing deploys to prod unless the script name says `prod`. Run them from the repo root (`npm run deploy:dev`) or from this folder.
+Aliases in `../.firebaserc`: `dev` = `lendshelf-dev`, `prod` = `lendshelf-prod`. There is no default project, so a bare `firebase deploy` errors instead of picking one. Every deploy script names its project; nothing deploys to prod unless the script name says `prod`. Run them from the repo root (`npm run deploy:dev`) or from this folder.
 
 ### What the code needs from a real project
 
@@ -73,7 +54,7 @@ Aliases in `../.firebaserc`: `dev` = `lendshelf-dev`, `prod` = `lendshelf-prod`,
 | `onUserCreated` | v1 (1st gen) Auth trigger: v2 has no non-blocking "user created" event |
 | Push | Expo push API: no server key in the functions. Delivery needs the FCM V1 service-account key (Android) and APNs key (iOS) uploaded to the Expo/EAS project. If you turn on Expo's "enhanced push security", the functions would need an Expo access token (not supported today). |
 | Storage bucket | Taken from `FIREBASE_CONFIG` at deploy time (`lendshelf-<env>.firebasestorage.app`); only `deleteAccount` uses it. |
-| Emulator-only code | The `_testPushes` recorder runs only when `FUNCTIONS_EMULATOR=true`, which Cloud never sets, so real pushes go to Expo. `scripts/seed.ts` hard-codes `demo-lendshelf` and the emulator hosts, so it can't touch a real project. No project id is hard-coded in `src/`. |
+| Test-only code | The `_testPushes` recorder (`isTestEmulator()` in `src/lib/context.ts`) runs only when `FUNCTIONS_EMULATOR=true` (set only by the emulator, never by Cloud) **and** the project id starts with `demo-`, so real pushes always go to Expo. No project id is hard-coded in `src/`. |
 
 ### State on 2026-11-21 (both projects on Blaze)
 
@@ -135,7 +116,7 @@ Blaze has no spending cap; a budget only sends alerts. Before the first deploy, 
 
 All callables require a signed-in user. Errors are `HttpsError`s (`invalid-argument`, `not-found`, `permission-denied`, `failed-precondition`, `already-exists`, `resource-exhausted`, `unavailable`, `unauthenticated`, `internal`) with a user-readable message and no internal details.
 
-**App Check** is opt-in: set `ENFORCE_APP_CHECK=true` (per project in `functions/.env.dev` / `functions/.env.prod`, both `false` today) to make every callable reject requests without a valid App Check token. It is off by default so the emulators and current builds work. **Set up App Check in the app and turn this on before production.** Dates in requests are ISO 8601 strings; dates in responses don't appear (callers read Firestore).
+**App Check** is opt-in: set `ENFORCE_APP_CHECK=true` (per project in `functions/.env.dev` / `functions/.env.prod`, both `false` today) to make every callable reject requests without a valid App Check token. It is off by default so the backend tests and current builds work. **Set up App Check in the app and turn this on before production.** Dates in requests are ISO 8601 strings; dates in responses don't appear (callers read Firestore).
 
 | Name | Type | Request → Response | Notes |
 |---|---|---|---|
@@ -167,7 +148,7 @@ Due dates: a date-only string like `"2026-12-12"` is midnight UTC that day. Due 
 
 Expo push tickets are read: a token whose ticket says `DeviceNotRegistered` is removed from every `users` doc that holds it. (Receipts are not polled.)
 
-In the Functions emulator (`FUNCTIONS_EMULATOR=true`) nothing is sent: each push is logged and written to the `_testPushes` collection (closed to clients by the rules), which the integration tests read.
+Test support: in the test emulator (`FUNCTIONS_EMULATOR=true` and a `demo-*` project) nothing is sent: each push is written to the `_testPushes` collection (closed to clients by the rules), which the integration tests read.
 
 ### Account deletion
 
@@ -186,7 +167,7 @@ Firestore only allows a list query if the rules can be proven from the query's o
 - `watches` where `uid == me`.
 - `reviews` where `authorId == me` (or a linked author). Reviews are normally read **by id**: `reviews/{workId}_{uid}` for me and each linked owner. A linked author's missing review reads as "doesn't exist" (not "permission denied"), so the app can fetch them all without errors. `watches/{me}_{type}_{targetId}` behaves the same, so "am I watching?" is a plain `getDoc`.
 
-Write rules: `items.loanState`, `dueDate`, `activeLoanId` are backend-only (must be `available`/`null`/`null` on create and unchanged on update); `sharedWithContacts` must equal `shelf.isPublic && visibility != "hidden"` (checked with `getAfter`, so a shelf and its first copy can be written in one batch); a copy of a custom work (`custom_` id) must use the caller's own custom work, while a catalogue copy (`ol_`/`gb_` id, `isCustom == false`) needs no work read; a lent copy can't be deleted. `createdAt`/`updatedAt` must be `serverTimestamp()` (`createdAt` on create, `updatedAt` on every write) for items, custom works, shelves, reviews and profiles, and a watch's `createdAt` on create. `authors` (items, custom works) is a list of at most 20 strings of at most 300 characters. `coverUrl` is `null` or starts with `https://covers.openlibrary.org/`, `https://books.google.com/`, `https://books.googleusercontent.com/`, `https://firebasestorage.googleapis.com/`, or (Storage emulator) `http://127.0.0.1:<port>/`, `http://localhost:<port>/`, `http://10.0.2.2:<port>/`. Uploaded covers must be JPEG, PNG, WebP or HEIC/HEIF (no SVG). Shelf `isPublic` changes and shelf deletes go through the callables. `users` docs: the client may only change `pushTokens`. `phoneIndex`, `isbnIndex`, `links`, `loans` are not client-writable.
+Write rules: `items.loanState`, `dueDate`, `activeLoanId` are backend-only (must be `available`/`null`/`null` on create and unchanged on update); `sharedWithContacts` must equal `shelf.isPublic && visibility != "hidden"` (checked with `getAfter`, so a shelf and its first copy can be written in one batch); a copy of a custom work (`custom_` id) must use the caller's own custom work, while a catalogue copy (`ol_`/`gb_` id, `isCustom == false`) needs no work read; a lent copy can't be deleted. `createdAt`/`updatedAt` must be `serverTimestamp()` (`createdAt` on create, `updatedAt` on every write) for items, custom works, shelves, reviews and profiles, and a watch's `createdAt` on create. `authors` (items, custom works) is a list of at most 20 strings of at most 300 characters. `coverUrl` is `null` or starts with `https://covers.openlibrary.org/`, `https://books.google.com/`, `https://books.googleusercontent.com/`, or `https://firebasestorage.googleapis.com/` (no local or `http://` URLs). Uploaded covers must be JPEG, PNG, WebP or HEIC/HEIF (no SVG). Shelf `isPublic` changes and shelf deletes go through the callables. `users` docs: the client may only change `pushTokens`. `phoneIndex`, `isbnIndex`, `links`, `loans` are not client-writable.
 
 **Batch size for new copies.** Firestore allows 20 document reads (`get`/`getAfter`/`exists`) per batched write. A new copy reads its shelf (counted once per batch) and, only for an *existing* custom work, that work; catalogue copies and custom works created in the same batch add nothing. So one batch can hold at most **19 copies of distinct existing custom works**; chunking adds at 19 copies per batch (each with its new custom work, if any) is always safe. Pinned by the "batch sizes" rules tests.
 

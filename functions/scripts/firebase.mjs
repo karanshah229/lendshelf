@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Runs the locally installed firebase-tools with a Java runtime that the
-// emulators accept (firebase-tools 15 needs Java 21+).
+// Runs the locally installed firebase-tools (used by the deploy scripts and by
+// the backend test scripts) with a Java runtime that the test emulators accept
+// (firebase-tools 15 needs Java 21+). Deploys don't need Java.
 //
 // If JAVA_HOME (or `java` on PATH) is older than 21, this looks for a newer
 // JDK in a few well-known places (Android Studio's bundled JBR, common JDK
@@ -74,7 +75,7 @@ if (javaMajor("java") < MIN_JAVA && !(env.JAVA_HOME && javaMajor(path.join(env.J
     console.error(`[firebase.mjs] Using Java from ${home}`);
   } else {
     console.error(
-      `[firebase.mjs] Warning: no Java ${MIN_JAVA}+ found. The emulators need it. ` +
+      `[firebase.mjs] Warning: no Java ${MIN_JAVA}+ found. The test emulators need it. ` +
         "Install a JDK 21+ or set LENDSHELF_JAVA_HOME.",
     );
   }
@@ -95,9 +96,9 @@ if (isWin) {
   }
 }
 
-// The functions emulator gives the code 10 s to load before giving up ("Cannot
-// determine backend specification"). On a busy machine (e.g. tests running
-// next to `serve`) loading firebase-admin can take longer. Seconds.
+// The Functions emulator (tests) and `firebase deploy` give the code 10 s to
+// load before giving up ("Cannot determine backend specification"). On a busy
+// machine loading firebase-admin can take longer. Seconds.
 env.FUNCTIONS_DISCOVERY_TIMEOUT ??= "60";
 
 const require = createRequire(import.meta.url);

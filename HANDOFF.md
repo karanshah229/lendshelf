@@ -2,43 +2,51 @@
 
 ## 2026-11-21 update
 
-The code changes are in commit `fd901b7`.
+The UX v1.1 and environment changes are in commit `fd901b7`.
 
-**UX v1.1.** The app now follows [docs/ux/UX-FLOWS.md](docs/ux/UX-FLOWS.md): Home with "Needs you", an urgency-sorted Loans ledger, a Loan screen, decline reasons, not-collected / not-returned / owner-left states, a contacts shrink guard, first-run and invite flows, and an accessibility pass. The end-to-end QA run and its fixes are in [docs/ux/QA-V1.1.md](docs/ux/QA-V1.1.md).
+**UX v1.1.** The app now follows [docs/ux/UX-FLOWS.md](docs/ux/UX-FLOWS.md): Home with "Needs you", an urgency-sorted Loans ledger, a Loan screen, decline reasons, not-collected / not-returned / owner-left states, a contacts shrink guard, first-run and invite flows, and an accessibility pass. The end-to-end QA run and its fixes are in [docs/ux/QA-V1.1.md](docs/ux/QA-V1.1.md). That QA run used the emulators and demo users, which have since been removed.
 
-**Phone testing.** Release APKs (arm64-v8a) install on a physical phone over USB. In emulator mode the phone reaches the local emulators through `adb reverse`; in dev mode it talks to `lendshelf-dev`. Steps are in README → *Android build*. Fixed while testing on a phone:
+**Phone testing.** Release APKs (arm64-v8a) install on a physical phone over USB and talk to `lendshelf-dev`. Steps are in README → *Android build*. Fixed while testing on a phone:
 
-- The placeholder API key now has the shape Firebase expects. The native Functions SDK rejected every callable with the old one.
+- The placeholder API key got the shape Firebase expects; the native Functions SDK rejected every callable with the old one. (The placeholder config files have since been deleted.)
 - Onboarding waits for a saved name, not just any profile document.
 - The keyboard no longer covers footer buttons on Android.
 
-**Firebase environments.** `APP_ENV` picks `emulator`, `dev` (`lendshelf-dev`) or `prod` (`lendshelf-prod`) at build time. Real app configs live in the git-ignored `firebase-config/<env>/`, downloaded with `npm run firebase:config`. See README → *Environments*.
+**Emulator mode and seed data removed.** The app has no emulator mode any more: no "Use code from emulator" button, no Emulator badge, no `adb reverse`, no `ACCESS_LOCAL_NETWORK` permission and no cleartext traffic. The `emulators`, `seed` and `dev:web:real` scripts are gone, and `npm run dev:web` now runs the web app against dev. The demo users (Asha, Ravi, Meera, Kabir, Zoya) and their ~70 books are deleted, so dev starts empty. The backend tests still start a private, throwaway emulator (`firebase.test.json`, `--project demo-lendshelf`; needs Java 21). The Firestore rules now accept cover URLs only from the https catalogue hosts and `firebasestorage.googleapis.com`.
 
-| Set up in both real projects | Dev only |
+**Firebase environments.** `APP_ENV` picks `dev` (`lendshelf-dev`, the default) or `prod` (`lendshelf-prod`, never implicit) at build time. App configs live in the git-ignored `firebase-config/<env>/`, downloaded with `npm run firebase:config`. The root placeholder `google-services.json` and `GoogleService-Info.plist` are deleted. See README → *Environments*.
+
+| Set up and deployed in both projects | Dev only |
 |---|---|
-| Firestore (`asia-south1`), rules and indexes deployed | Test numbers +91 90000 00001 to 05 (code in the Firebase console) |
-| Phone auth, SMS limited to India | SHA-1 / SHA-256 of the React Native debug keystore |
+| Blaze plan | Test numbers +91 90000 00001 to 05 (code in `firebase-config/TEST-NUMBERS.md` or the Firebase console) |
+| Firestore (`asia-south1`), rules and indexes | SHA-1 / SHA-256 of the React Native debug keystore |
+| Phone auth, SMS limited to India | |
+| 19 Cloud Functions (`asia-south1`) | |
+| Storage bucket (`us-central1`, inside the free tier) and rules | |
 | Android, iOS and web apps (`com.lendshelf.app`) | |
+
+**Checked on dev.** Dev passed an end-to-end check on web: sign-in with a test number, account setup, saving a name and contact matching.
 
 **Blockers (owner action needed):**
 
 | Blocker | Effect | Fix |
 |---|---|---|
-| Both projects are on Spark | No Cloud Functions, Storage bucket or scheduled jobs, so onboarding and every callable fail on dev and prod | Upgrade to Blaze (payment method), set a budget alert, then deploy ([functions/README.md → Deploying to dev / prod](functions/README.md#deploying-to-dev--prod)) |
 | Prod has no signing key fingerprints | Phone sign-in doesn't work on prod | Add the release and Play app signing SHA-1 / SHA-256 |
 | EAS isn't set up | No cloud builds; `firebase-config/` isn't available to EAS | `eas init`, then pass the config files to EAS (e.g. file environment variables) |
 
-The full list is in README → *Going live*.
+The full list is in README → *Going live*. Deploy steps are in [functions/README.md → Deploying to dev / prod](functions/README.md#deploying-to-dev--prod).
 
 ---
 
 ## Earlier handoff (v1, emulators only)
 
+> **Outdated.** This section describes the first build, which ran on local emulators with seeded demo users. Emulator mode, the seed script and the demo users have since been removed, so the run instructions below (Emulator UI, `npm run seed`, demo numbers, the emulator demo APK) no longer work. Use README → *Run it locally* instead. It is kept as a record of what was built and checked at the time.
+
 The app is built, tested and running locally on the Firebase emulators. It works on web and on the Android emulator. Nothing is deployed, and no real Firebase, Expo or Apple accounts were created or used.
 
 ![Discover on Android](docs/screenshots/android-discover.png)
 
-## What's running right now
+## What was running then (outdated)
 
 | Thing | Where | Notes |
 |---|---|---|
@@ -47,7 +55,7 @@ The app is built, tested and running locally on the Firebase emulators. It works
 | Android emulator | `Medium_Phone_API_37.0` window | The demo APK is installed and signed in as Asha |
 | Demo APK | `dist-apk/lendshelf-emulator-demo.apk` | x86_64, emulator mode, JS bundled, not committed |
 
-If anything has stopped, see README → *Run it locally*. For a clean dataset, run `npm run seed` while the emulators are up. It wipes and recreates the demo data.
+The Firebase emulators, demo users and emulator-mode builds are gone. `dist-apk/` (git-ignored) still holds `lendshelf-emulator-demo.apk`; it needs the removed emulator mode and won't work.
 
 ## What was verified
 
@@ -70,10 +78,10 @@ If anything has stopped, see README → *Run it locally*. For a clean dataset, r
 
 ## What you need to do to put it on phones
 
-See README → *Going live* for the steps. In short:
+Steps 1 and 2 are done (see the 2026-11-21 update above); README → *Going live* has the current list. As written then:
 
-1. Create a Firebase project on the Blaze plan. Enable Phone auth, Firestore (`asia-south1`) and Storage. Add Android and iOS apps (`com.lendshelf.app`), then replace `google-services.json` and `GoogleService-Info.plist`.
-2. Deploy the rules, indexes and functions.
+1. ~~Create a Firebase project on the Blaze plan. Enable Phone auth, Firestore (`asia-south1`) and Storage. Add Android and iOS apps (`com.lendshelf.app`), then replace `google-services.json` and `GoogleService-Info.plist`.~~ Done as `lendshelf-dev` and `lendshelf-prod`; configs now come from `firebase-config/<env>/`.
+2. ~~Deploy the rules, indexes and functions.~~ Done on both projects.
 3. Run `npx eas-cli init`, then build an APK (`eas build -p android --profile preview`) and an iOS build for TestFlight.
 
 ## Decisions I made while you slept

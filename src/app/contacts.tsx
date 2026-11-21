@@ -46,24 +46,13 @@ import {
   presentLimitedAccessPicker,
   requestContactsPermission,
   type ContactsPermission,
-  type DeviceContact,
 } from '@/lib/contacts';
 import type { SyncedLink } from '@/lib/api';
 import { announce, sentences } from '@/lib/a11y';
 import { timeAgo } from '@/lib/dates';
-import { USE_EMULATORS } from '@/lib/firebase';
 import { formatPhone, normalisePhone, type CountryCode } from '@/lib/phone';
 import { toast } from '@/lib/toast';
 import { isOnboarded, useContactsStore } from '@/stores/contacts';
-
-/** Demo numbers matching the seed script's users (web / emulator only). */
-const DEMO_CONTACTS: DeviceContact[] = [
-  { name: 'Asha Rao', phone: '+919000000001' },
-  { name: 'Ravi Menon', phone: '+919000000002' },
-  { name: 'Meera Iyer', phone: '+919000000003' },
-  { name: 'Kabir Shah', phone: '+919000000004' },
-  { name: 'Zoya Khan', phone: '+919000000005' },
-];
 
 const granted = (p: ContactsPermission | null) => p === 'granted' || p === 'limited';
 const AVATARS_SHOWN = 5;
@@ -399,7 +388,7 @@ function PrivacyPoint({
   );
 }
 
-/** Web has no address book: add numbers by hand (or use the demo contacts in emulator mode). */
+/** Web has no address book: add numbers by hand. */
 function ManualContacts() {
   const contacts = useContactsStore((s) => s.manualContacts);
   const [name, setName] = useState('');
@@ -452,25 +441,10 @@ function ManualContacts() {
           invalid={!!error}
         />
         {error ? <Text className="text-sm text-destructive">{error}</Text> : null}
-        <View className="flex-row gap-2">
-          <Button variant="secondary" className="flex-1" onPress={add} disabled={!number.trim()}>
-            <Icon as={Plus} size={16} />
-            <Text>Add contact</Text>
-          </Button>
-          {USE_EMULATORS ? (
-            <Button
-              variant="outline"
-              className="flex-1"
-              onPress={() => {
-                useContactsStore.getState().addManualContacts(DEMO_CONTACTS);
-                toast.success('Added 5 demo contacts');
-              }}
-            >
-              <Icon as={Sparkles} size={16} />
-              <Text>Use demo contacts</Text>
-            </Button>
-          ) : null}
-        </View>
+        <Button variant="secondary" onPress={add} disabled={!number.trim()}>
+          <Icon as={Plus} size={16} />
+          <Text>Add contact</Text>
+        </Button>
       </View>
 
       {contacts.length ? (

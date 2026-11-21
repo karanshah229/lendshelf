@@ -5,7 +5,6 @@
  */
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import {
-  connectAuthEmulator,
   getAuth,
   onAuthStateChanged as fbOnAuthStateChanged,
   RecaptchaVerifier,
@@ -13,27 +12,14 @@ import {
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth';
-import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
-import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
-import {
-  connectStorageEmulator,
-  getDownloadURL,
-  getStorage,
-  ref as storageRef,
-  uploadBytes,
-} from 'firebase/storage';
+import { getFirestore } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 
-import {
-  EMULATOR_HOST,
-  EMULATOR_PORTS,
-  FUNCTIONS_REGION,
-  USE_EMULATORS,
-  WEB_FIREBASE_CONFIG,
-} from './config';
+import { FUNCTIONS_REGION, requireWebFirebaseConfig } from './config';
 import type { AuthUser, CallableFn, PhoneSignIn, Unsubscribe } from './types';
 
 export type { AuthUser, CallableFn, PhoneSignIn, Unsubscribe } from './types';
-export { USE_EMULATORS, EMULATOR_HOST, emulatorVerificationCodesUrl } from './config';
 
 export {
   arrayRemove,
@@ -56,30 +42,12 @@ export {
   writeBatch,
 } from 'firebase/firestore';
 
-const app = getApps().length ? getApp() : initializeApp(WEB_FIREBASE_CONFIG);
+const app = getApps().length ? getApp() : initializeApp(requireWebFirebaseConfig());
 
 const auth = getAuth(app);
 export const db = getFirestore(app);
 const functions = getFunctions(app, FUNCTIONS_REGION);
 const storage = getStorage(app);
-
-// Guard against double-connecting during Fast Refresh.
-const g = globalThis as { __lendshelfEmulatorsConnected?: boolean };
-if (USE_EMULATORS && !g.__lendshelfEmulatorsConnected) {
-  g.__lendshelfEmulatorsConnected = true;
-  connectAuthEmulator(auth, `http://${EMULATOR_HOST}:${EMULATOR_PORTS.auth}`, {
-    disableWarnings: true,
-  });
-  // Dev note (QA F1): the emulator speaks HTTP/1.1, so the browser allows 6 connections to
-  // it across ALL tabs, and each open tab holds its Firestore Listen/Write long-poll streams.
-  // With 4+ tabs on the app, writes queue for 10–40 s. Keep one tab open. Production
-  // Firestore uses HTTP/2 (one multiplexed connection) and native uses gRPC: not affected.
-  connectFirestoreEmulator(db, EMULATOR_HOST, EMULATOR_PORTS.firestore);
-  connectFunctionsEmulator(functions, EMULATOR_HOST, EMULATOR_PORTS.functions);
-  connectStorageEmulator(storage, EMULATOR_HOST, EMULATOR_PORTS.storage);
-  // The Auth emulator does not verify reCAPTCHA; skip the real widget entirely.
-  auth.settings.appVerificationDisabledForTesting = true;
-}
 
 function toAuthUser(user: User): AuthUser {
   return { uid: user.uid, phoneNumber: user.phoneNumber };

@@ -1,7 +1,7 @@
 # LendShelf build progress
 
 Status: IN PROGRESS (v1.1 on real devices and real Firebase)
-Last updated: 2026-11-21 21:40 IST
+Last updated: 2026-11-21 22:15 IST
 Driver: main Claude session; workstreams below run as parallel agents.
 
 ## Workstreams (2026-11-21)
@@ -17,6 +17,7 @@ Driver: main Claude session; workstreams below run as parallel agents.
 | 7 | Docs for environments (README, HANDOFF) | docs agent | Done | README: Environments section, Going live rewritten, phone dev/prod build. HANDOFF: 2026-11-21 update. Link to functions/README.md#deploying-to-dev--prod to check once workstream 5 lands. |
 | 8 | Privacy audit, then push to GitHub | audit agent, lead | Done | Audit clean (all files, history, 119 images). fd901b7 pushed to github.com/karanshah229/lendshelf main. Repo pinned to the noreply git identity. |
 | 9 | Dev APK on the phone, real sign-in | lead | Waiting on phone | dist-apk/lendshelf-dev-arm64.apk built (signed with the key registered in dev). Install when the phone is back on USB. |
+| 10 | Remove emulator mode and demo seed (owner decision 21:45) | app, backend, docs agents | Done | App: no emulator paths, placeholders deleted. Backend: seed and serve gone, cover URLs https-only (rules deployed to dev and prod). Tests keep a private emulator (firebase.test.json). |
 
 ## Waiting on the owner
 - Reconnect the phone (USB debugging) for QA and the dev APK.

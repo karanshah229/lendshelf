@@ -11,7 +11,7 @@ v1 is **books only**, but records are named generically (`Item`, `Loan`, `catego
 | Topic | Decision |
 |---|---|
 | Lending | Free. No money, deposits or payments. |
-| Platforms | Android and iOS, one Expo React Native codebase. A web build exists only for development and demos against the Firebase emulators. |
+| Platforms | Android and iOS, one Expo React Native codebase. A web build exists only for development, against the `lendshelf-dev` project. |
 | Distribution (testing) | Android: APK built locally or with EAS and sent directly. iOS: TestFlight. |
 | Sign-in | Phone number + SMS code (Firebase Auth). |
 | Network | **One-way contact matching**: if I have your number saved, I can see your shared items. No friend requests. |
@@ -41,17 +41,17 @@ v1 is **books only**, but records are named generically (`Item`, `Loan`, `catego
 | App | Expo (latest SDK), Expo Router, TypeScript strict |
 | UI | NativeWind v4 + React Native Reusables (shadcn/ui for React Native) + lucide-react-native. Neutral shadcn palette, light + dark mode. |
 | Firebase on native | `@react-native-firebase/*` (app, auth, firestore, functions, storage) — requires a dev build / prebuild, not Expo Go |
-| Firebase on web | `firebase` JS SDK (modular). Web is dev/demo only. |
+| Firebase on web | `firebase` JS SDK (modular). Web is for development only. |
 | Platform split | `src/lib/firebase/index.ts` (web, JS SDK) and `src/lib/firebase/index.native.ts` (RNFirebase modular API) export the same functions. App code imports only from `@/lib/firebase`. |
 | Backend | Cloud Functions for Firebase v2, Node 22, TypeScript, region `asia-south1` |
 | Database | Cloud Firestore |
-| Files | Cloud Storage (custom book cover photos) |
-| Local dev | Firebase Emulator Suite, project id `demo-lendshelf` (auth 9099, firestore 8080, functions 5001, storage 9199, UI 4000) |
+| Files | Cloud Storage (custom book cover photos); bucket in `us-central1`, inside the free tier |
+| Environments | Two Firebase projects, picked by `APP_ENV` at build time: `lendshelf-dev` (default, used for local development; has test phone numbers) and `lendshelf-prod` (never implicit). The app has no emulator mode. |
 | Book data | Open Library (primary), Google Books (fallback for ISBNs Open Library lacks) |
 | Push | Expo push service (`expo-notifications`, Expo push tokens) |
 | Contacts | `expo-contacts`; numbers normalised to E.164 with `libphonenumber-js` using the device region (default `IN`) |
 | Scanning | `expo-camera` barcode scanning (EAN-13), continuous mode |
-| Tests | Jest (`jest-expo`) for app logic; Vitest + `@firebase/rules-unit-testing` for rules; Vitest against emulators for functions |
+| Tests | Jest (`jest-expo`) for app logic; Vitest + `@firebase/rules-unit-testing` for rules; Vitest for functions, against a throwaway test-only emulator (`firebase.test.json`, project `demo-lendshelf`) |
 
 App id: `com.lendshelf.app` (Android package and iOS bundle id).
 
@@ -201,7 +201,7 @@ Private to `uid`.
 - `items`: owner create/update/delete with validation (`loanState`, `dueDate`, `activeLoanId` unchanged / defaults; `sharedWithContacts` consistent with the shelf; can't delete while lent; custom work must be own). Others read when `sharedWithContacts == true && links/{me}_{owner}` exists.
 - `reviews`: create/update/delete by author, id must be `${workId}_${auth.uid}`; read by author or linked viewer.
 - `watches`: owner only, id must match fields.
-- All client-written docs: `createdAt`/`updatedAt` must be `serverTimestamp()`. `authors` must be a list of ≤ 20 strings. `coverUrl` must be `null` or a URL from Open Library covers, Google Books, Firebase Storage (or the Storage emulator in dev). Item copies of catalogue works (`ol_`/`gb_` ids) need no work read, so one batch of new copies is limited only by copies of existing custom works (≤ 19 per batch).
+- All client-written docs: `createdAt`/`updatedAt` must be `serverTimestamp()`. `authors` must be a list of ≤ 20 strings. `coverUrl` must be `null` or a URL from Open Library covers, Google Books, Firebase Storage (https only). Item copies of catalogue works (`ol_`/`gb_` ids) need no work read, so one batch of new copies is limited only by copies of existing custom works (≤ 19 per batch).
 - Storage covers: JPEG, PNG, WebP or HEIC only.
 
 Client queries must be provable by rules: e.g. `items where ownerId == X and sharedWithContacts == true` (one query per linked owner), `loans where ownerId == me`, `loans where borrowerUid == me`, `links where viewerId == me`, `shelves where ownerId == X and isPublic == true`.
@@ -233,7 +233,7 @@ All callables require auth. Errors use `HttpsError` with clear messages.
 | `dailyMaintenance` | Scheduled 09:00 Asia/Kolkata | — | Expire `requested` loans older than 7 days; push "due in 2 days" and "overdue" reminders. |
 | `deleteAccount` | callable | `{}` | Removes the user's items (closing their loans: requests → `cancelled`; books out with an app borrower → `ownerLeft`, name kept, phone blanked, one push to the borrower if they have the owner saved; loans to non-app people deleted), shelves, reviews, watches, links (as viewer and owner), profile, users doc, phoneIndex, storage covers, then the auth user. Loans where they were borrower keep the name but drop `borrowerUid`. |
 
-Push sending goes through a small `sendPush(uids, message)` helper that reads `users/{uid}.pushTokens` and POSTs to `https://exp.host/--/api/v2/push/send`; tokens whose ticket says `DeviceNotRegistered` are removed. It records instead of sending in the emulator. App Check enforcement on callables is opt-in (`ENFORCE_APP_CHECK=true`), to be turned on before production.
+Push sending goes through a small `sendPush(uids, message)` helper that reads `users/{uid}.pushTokens` and POSTs to `https://exp.host/--/api/v2/push/send`; tokens whose ticket says `DeviceNotRegistered` are removed. In the backend tests' emulator (a `demo-*` project) it records each push in `_testPushes` instead of sending. App Check enforcement on callables is opt-in (`ENFORCE_APP_CHECK=true`), to be turned on before production.
 
 ---
 
@@ -255,7 +255,7 @@ Sign-up (before tabs): **Phone** → **Code** → **Your name** → **Contacts**
 | **Loans** (tab) | Requests (accept/decline), Lent out (nudge on WhatsApp, mark returned, change due date), Borrowed (I've returned it, cancel request). |
 | **Me** (tab) | Name, pickup note, contacts sync status + resync, Wishlist, Export CSV/JSON, theme, privacy policy, sign out, delete account. |
 
-Dev-only conveniences (emulator mode): the Code screen shows the code fetched from the Auth emulator; on web, the Contacts screen lets you enter numbers manually (web has no address book).
+Web (development only): the Contacts screen lets you enter numbers manually, because web has no address book. On dev, sign in with the test phone numbers (no SMS is sent).
 
 ---
 

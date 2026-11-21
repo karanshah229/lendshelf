@@ -56,7 +56,7 @@ export const REQUEST_TTL_DAYS = 7;
 export const DEFAULT_LOAN_DAYS = 21;
 export const DEFAULT_SHELF_NAME = "My books";
 
-/** Collection names. `_testPushes` exists only in the emulator. */
+/** Collection names. `_testPushes` is test support: written only in the test emulator. */
 export const COL = {
   users: "users",
   profiles: "profiles",
@@ -230,7 +230,7 @@ export interface WatchDoc<T = Timestamp> {
   createdAt: T;
 }
 
-/** Record written in the emulator instead of calling the Expo push API. */
+/** Test support: record written in the test emulator instead of calling the Expo push API. */
 export interface TestPushDoc<T = Timestamp> {
   uids: string[];
   title: string;

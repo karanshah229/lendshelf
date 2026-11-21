@@ -1,7 +1,7 @@
 {
   "name": "lendshelf-functions",
   "private": true,
-  "description": "Cloud Functions, security rules tests and seed data for LendShelf",
+  "description": "Cloud Functions, security rules and tests for LendShelf",
   "main": "lib/index.js",
   "engines": {
     "node": "22"
@@ -14,9 +14,7 @@
     "test:rules": "node scripts/firebase.mjs emulators:exec --config ../firebase.test.json --project demo-lendshelf --only firestore,storage \"vitest run --config vitest.rules.config.mts\"",
     "test:integration": "npm run build && node scripts/firebase.mjs emulators:exec --config ../firebase.test.json --project demo-lendshelf --only auth,firestore,functions,storage \"vitest run --config vitest.integration.config.mts\"",
     "test": "npm run build && npm run test:unit && node scripts/firebase.mjs emulators:exec --config ../firebase.test.json --project demo-lendshelf --only auth,firestore,functions,storage \"vitest run --config vitest.rules.config.mts && vitest run --config vitest.integration.config.mts\"",
-    "serve": "npm run build && node scripts/firebase.mjs emulators:start --project demo-lendshelf",
     "firebase": "node scripts/firebase.mjs",
-    "seed": "tsx scripts/seed.ts",
     "deploy:dev": "node scripts/firebase.mjs deploy --project dev --only firestore,storage,functions",
     "deploy:dev:dry-run": "node scripts/firebase.mjs deploy --project dev --only firestore,storage,functions --dry-run",
     "deploy:dev:firestore": "node scripts/firebase.mjs deploy --project dev --only firestore:rules,firestore:indexes",

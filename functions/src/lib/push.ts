@@ -1,6 +1,6 @@
 /**
  * Expo push sending. `createPushSender` wires token lookup, transport and the
- * emulator recorder together so each piece can be replaced in tests.
+ * test recorder together so each piece can be replaced in tests.
  */
 import { logger } from "firebase-functions";
 
@@ -26,7 +26,7 @@ export interface ExpoPushMessage {
 export interface PushResult {
   uids: string[];
   tokenCount: number;
-  /** "sent" = posted to Expo; "recorded" = emulator test hook; "skipped" = nothing to do. */
+  /** "sent" = posted to Expo; "recorded" = test recorder (test emulator only); "skipped" = nothing to do. */
   outcome: "sent" | "recorded" | "skipped";
 }
 
@@ -128,7 +128,7 @@ export function expoTransport(fetchImpl: FetchForPush): PushTransport {
 export interface PushSenderOptions {
   getTokens: TokenLookup;
   transport: PushTransport;
-  /** When true (functions emulator), record instead of sending. */
+  /** Test support: when true (the test emulator, see `isTestEmulator`), record instead of sending. */
   emulator: boolean;
   recorder?: PushRecorder;
   /** Called with tokens Expo says are no longer registered. */
@@ -147,7 +147,6 @@ export function createPushSender(opts: PushSenderOptions): PushSender {
     }
     const messages = buildExpoMessages(tokens, message);
     if (opts.emulator) {
-      logger.info("[push:emulator]", { uids, title: message.title, body: message.body, tokens: messages.length });
       if (opts.recorder) {
         try {
           await opts.recorder({ uids, message, tokenCount: messages.length });

@@ -26,8 +26,9 @@ setGlobalOptions({ region: REGION, maxInstances: 10 });
 
 /**
  * App Check on callables is opt-in: set ENFORCE_APP_CHECK=true (e.g. in
- * functions/.env) once the app sends App Check tokens. Off by default so the
- * emulators and current builds keep working. Turn it on before production.
+ * functions/.env.dev / .env.prod) once the app sends App Check tokens. Off by
+ * default so the backend tests and current builds keep working. Turn it on
+ * before production.
  */
 const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === "true";
 

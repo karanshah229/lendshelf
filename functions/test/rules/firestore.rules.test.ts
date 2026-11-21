@@ -517,9 +517,6 @@ describe("cover URLs (items and custom works)", () => {
     "https://books.google.com/books/content?id=x3qBDwAAQBAJ&printsec=frontcover&img=1&zoom=1",
     "https://books.googleusercontent.com/books/content?id=abc",
     "https://firebasestorage.googleapis.com/v0/b/lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
-    "http://127.0.0.1:9199/v0/b/demo-lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
-    "http://10.0.2.2:9199/v0/b/demo-lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
-    "http://localhost:9199/v0/b/demo-lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
   ];
   const denied = [
     "https://evil.example.com/pixel.gif",
@@ -528,13 +525,17 @@ describe("cover URLs (items and custom works)", () => {
     "https://covers.openlibrary.org.evil.com/x.jpg",
     "https://covers.openlibrary.org@evil.com/x.jpg",
     "http://127.0.0.1.evil.com:9199/x",
+    // Local (Storage emulator style) download URLs are not valid covers.
+    "http://127.0.0.1:9199/v0/b/lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
+    "http://10.0.2.2:9199/v0/b/lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
+    "http://localhost:9199/v0/b/lendshelf.appspot.com/o/covers%2Falice%2Fa.jpg?alt=media",
     "javascript:alert(1)",
     "data:image/png;base64,AAAA",
     "",
     42,
   ];
 
-  it("only catalogue, Storage and Storage-emulator URLs (or null)", async () => {
+  it("only catalogue and Cloud Storage URLs (or null)", async () => {
     let n = 0;
     for (const url of allowed) {
       await assertSucceeds(setDoc(doc(as(ALICE), "items", `c${++n}`), newItem(url)));
