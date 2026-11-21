@@ -58,6 +58,9 @@ export function ScanPanel({
         className="flex-1"
         contentContainerClassName="gap-4 px-4 pb-6"
         keyboardShouldPersistTaps="handled"
+        // Dragging the list puts the keyboard away, so the queue isn't stuck in a sliver while
+        // typing an ISBN (QA-ANDROID polish).
+        keyboardDismissMode="on-drag"
       >
         <BarcodeCamera active={active} onBarcode={onBarcode} />
         <IsbnEntry onSubmit={onIsbn} prominent={!CAMERA_SCANNING} />
@@ -259,6 +262,8 @@ function QueueRow({
       <Pressable
         onPress={onRemove}
         className="size-8 items-center justify-center rounded-full active:bg-accent"
+        // 32 dp circle, 48 dp touch target (F8).
+        hitSlop={8}
         accessibilityRole="button"
         accessibilityLabel="Remove from list"
       >

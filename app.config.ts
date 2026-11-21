@@ -17,6 +17,14 @@ if (APP_ENV !== 'dev' && APP_ENV !== 'prod') {
   throw new Error(`APP_ENV must be dev or prod (got "${APP_ENV}")`);
 }
 
+/**
+ * EAS project id, needed for Expo push tokens (`src/lib/push.ts`). This config is dynamic, so
+ * `eas init` can't write it here: set EAS_PROJECT_ID (or EAS_PROJECT_ID_DEV / _PROD), or put
+ * `extra.eas.projectId` in an app.json. Without it, push registration is skipped.
+ */
+const EAS_PROJECT_ID =
+  process.env[`EAS_PROJECT_ID_${APP_ENV.toUpperCase()}`] || process.env.EAS_PROJECT_ID || '';
+
 function firebaseFile(name: string): string {
   const path = `./firebase-config/${APP_ENV}/${name}`;
   if (!existsSync(path)) {
@@ -57,6 +65,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       monochromeImage: './assets/images/android-icon-monochrome.png',
     },
     predictiveBackGestureEnabled: false,
+    // expo-contacts also adds WRITE_CONTACTS; LendShelf only reads the address book.
+    blockedPermissions: ['android.permission.WRITE_CONTACTS'],
   },
   web: {
     output: 'single',
@@ -120,6 +130,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     typedRoutes: true,
   },
   extra: {
+    // Keep anything a static app.json adds (e.g. `eas.projectId` written by `eas init`).
+    ...config.extra,
+    ...(EAS_PROJECT_ID ? { eas: { ...config.extra?.eas, projectId: EAS_PROJECT_ID } } : {}),
     appEnv: APP_ENV,
     firebaseWeb: webConfig(),
   },

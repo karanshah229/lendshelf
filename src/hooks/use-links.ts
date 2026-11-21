@@ -1,10 +1,12 @@
 import { useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
+import { setCircleNamesSource } from '@/features/shared/people';
 import { formatPhone } from '@/lib/phone';
 import { useContactsStore } from '@/stores/contacts';
 import { useProfilesStore } from '@/stores/profiles';
 import { useSessionStore } from '@/stores/session';
+import type { Link } from '@/types/model';
 
 /** A person whose number I have saved and who is on LendShelf. */
 export interface LinkedOwner {
@@ -14,6 +16,34 @@ export interface LinkedOwner {
   displayName: string;
   contactName: string | null;
   profileName: string | null;
+}
+
+/** Name I saved them as → their profile name → formatted number. */
+function displayNameOf(
+  link: Pick<Link, 'ownerId' | 'ownerPhone'>,
+  nameByPhone: Record<string, string>,
+  profiles: Record<string, { name: string } | null>
+): string {
+  return nameByPhone[link.ownerPhone] || profiles[link.ownerId]?.name || formatPhone(link.ownerPhone);
+}
+
+let circleCache: { key: readonly unknown[]; names: string[] } | null = null;
+
+/**
+ * Lets `shortName` see everyone in my circle (read straight from the stores, so it matches the
+ * render that asks), so two friends never get the same short name. Call once at start-up.
+ */
+export function registerCircleNames(): void {
+  setCircleNamesSource(() => {
+    const links = useSessionStore.getState().links;
+    const nameByPhone = useContactsStore.getState().nameByPhone;
+    const profiles = useProfilesStore.getState().byUid;
+    const key = [links, nameByPhone, profiles];
+    if (!circleCache || circleCache.key.some((k, i) => k !== key[i])) {
+      circleCache = { key, names: links.map((l) => displayNameOf(l, nameByPhone, profiles)) };
+    }
+    return circleCache.names;
+  });
 }
 
 /**
@@ -43,7 +73,7 @@ export function useLinks(): { links: LinkedOwner[]; loading: boolean; error: Err
             ownerPhone: l.ownerPhone,
             contactName,
             profileName,
-            displayName: contactName || profileName || formatPhone(l.ownerPhone),
+            displayName: displayNameOf(l, nameByPhone, profiles),
           };
         })
         .sort((a, b) => a.displayName.localeCompare(b.displayName)),

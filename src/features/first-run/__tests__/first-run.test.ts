@@ -6,6 +6,7 @@ import {
   libraryWelcomeLine,
   loansEmptyCopy,
   meContactsDetail,
+  setupBooksLine,
   setupCopy,
   syncErrorText,
 } from '@/features/first-run/first-run';
@@ -25,9 +26,9 @@ describe('the three new-user cases (E2a)', () => {
     expect(firstRunCase({ hasAddressBook: true, permission: 'denied', peopleCount: 0 })).toBe(
       'contactsOff'
     );
-    expect(
-      firstRunCase({ hasAddressBook: true, permission: 'undetermined', peopleCount: 0 })
-    ).toBe('contactsOff');
+    expect(firstRunCase({ hasAddressBook: true, permission: 'undetermined', peopleCount: 0 })).toBe(
+      'contactsOff'
+    );
     expect(firstRunCase({ hasAddressBook: true, permission: 'granted', peopleCount: 0 })).toBe(
       'empty'
     );
@@ -102,14 +103,19 @@ describe('Home setup card copy', () => {
     expect(denied.body).toBe(
       'Only numbers are checked, to find friends on LendShelf. Nothing from your address book is stored.'
     );
-    expect(denied).toMatchObject({ peopleAction: 'openSettings', peopleActionLabel: 'Turn on contacts' });
+    expect(denied).toMatchObject({
+      peopleAction: 'openSettings',
+      peopleActionLabel: 'Turn on contacts',
+    });
     expect(
       setupCopy({ case: 'contactsOff', permission: 'undetermined', syncFailed: false }).peopleAction
     ).toBe('askContacts');
   });
 
   it('(ii) uses "Get set up · n of 3" and Scan your shelf', () => {
-    expect(setupCopy({ case: 'circle', permission: 'granted', syncFailed: false }).title).toBeNull();
+    expect(
+      setupCopy({ case: 'circle', permission: 'granted', syncFailed: false }).title
+    ).toBeNull();
     expect(addBooksLabel(true)).toBe('Scan your shelf');
     expect(addBooksLabel(false)).toBe('Search for a book');
   });
@@ -121,11 +127,25 @@ describe('My books welcome line', () => {
       'Even before friends join, you can lend books to anyone and LendShelf remembers who has them.'
     );
     expect(libraryWelcomeLine(['Asha Rao', 'Ravi Menon'])).toBe(
-      'Asha and Ravi will see what you add. You choose what they can borrow.'
+      'Asha and Ravi will see what you add if they have your number saved. You choose what they can borrow.'
     );
     expect(libraryWelcomeLine(['Asha Rao', 'Ravi Menon', 'Meera Iyer'])).toBe(
-      'Asha and 2 others will see what you add. You choose what they can borrow.'
+      'Asha and 2 others will see what you add if they have your number saved. You choose what they can borrow.'
     );
+  });
+});
+
+describe('setup card line under Add your books', () => {
+  // One-way matching: I only know whom I saved, not who saved me (QA-ANDROID bug 8).
+  it('never promises a named person can borrow', () => {
+    expect(setupBooksLine('Asha')).toBe(
+      'Once you add yours, Asha can ask to borrow them if they have your number saved.'
+    );
+    expect(setupBooksLine('Asha')).not.toMatch(/can borrow from you/);
+  });
+
+  it('is hidden with nobody in the circle', () => {
+    expect(setupBooksLine('')).toBeNull();
   });
 });
 
@@ -171,9 +191,9 @@ describe('Me › Contacts row', () => {
     expect(meContactsDetail({ ...base, linkCount: 10, skippedRemovals: 7 })).toBe(
       'Some contacts weren’t checked · Sync now'
     );
-    expect(
-      meContactsDetail({ ...base, hasAddressBook: false, manualCount: 5, linkCount: 1 })
-    ).toBe('5 added by hand · 1 person on LendShelf · checked just now');
+    expect(meContactsDetail({ ...base, hasAddressBook: false, manualCount: 5, linkCount: 1 })).toBe(
+      '5 added by hand · 1 person on LendShelf · checked just now'
+    );
     expect(meContactsDetail({ ...base, checkedAgo: null })).toBe('not checked yet');
   });
 });

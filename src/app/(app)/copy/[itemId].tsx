@@ -79,6 +79,9 @@ export default function CopyScreen() {
     [item, itemId, asBorrower]
   );
   const loading = itemLoading || (!item && loansLoading);
+  // Remember the book while the copy is readable, for the "isn't shared any more" fallback.
+  const [seenWorkId, setSeenWorkId] = useState<string | null>(null);
+  if (item && item.workId !== seenWorkId) setSeenWorkId(item.workId);
   const { isWatchingBack } = useWatches();
   const linkMap = useLinkMap();
   const nameOf = useNameOf();
@@ -125,14 +128,26 @@ export default function CopyScreen() {
           }
         />
       ) : !item || !state ? (
+        // E3: the owner hid or removed the copy (often while I'm on it). Send me to the Book
+        // page for other copies when I know which book it was (QA-ANDROID bug 7).
         <EmptyState
           icon={BookCopy}
-          title="Copy not found"
-          description="It may have been removed, or it isn’t shared with you any more."
+          title="This copy isn’t shared any more"
+          description="The owner may have hidden or removed it."
         >
-          <Button variant="outline" onPress={() => router.back()}>
-            <Text>Go back</Text>
-          </Button>
+          {seenWorkId ? (
+            <Button
+              onPress={() =>
+                router.replace({ pathname: '/book/[workId]', params: { workId: seenWorkId } })
+              }
+            >
+              <Text>See other copies of this book</Text>
+            </Button>
+          ) : (
+            <Button variant="outline" onPress={() => router.back()}>
+              <Text>Go back</Text>
+            </Button>
+          )}
         </EmptyState>
       ) : (
         <View className="w-full max-w-2xl gap-6 self-center">

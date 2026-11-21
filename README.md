@@ -132,8 +132,8 @@ Deploy steps, IAM gotchas and the budget alert are in [functions/README.md → D
 1. **Prod signing keys.** Add the SHA-1 and SHA-256 of the real release key and of the Play app signing key to the prod Android app, then run `npm run firebase:config -- prod`. Phone sign-in on prod doesn't work until then. Local release APKs are signed with the debug keystore (android/app/build.gradle), so they only work against dev.
 2. **App Check.** The app doesn't include the App Check SDK yet. Add it, then set `ENFORCE_APP_CHECK=true` for the functions (see functions/README.md).
 3. **Expo / EAS** (not set up yet; there is no `eas.json`):
-   - Run `npx eas-cli init`. It adds `extra.eas.projectId`; push registration is skipped until this exists.
-   - Upload FCM v1 credentials for Android push and let EAS manage the APNs key for iOS.
+   - Run `npx eas-cli init`. app.config.ts is dynamic, so EAS can't write the id into it: set `EAS_PROJECT_ID` (or `EAS_PROJECT_ID_DEV` / `EAS_PROJECT_ID_PROD`) when building, or keep `extra.eas.projectId` in an app.json (app.config.ts keeps it). Push registration is skipped until the id exists.
+   - Upload FCM v1 credentials for Android push (a service-account key of the Firebase project in that build's google-services.json, so dev and prod each need their own; both use `com.lendshelf.app`, so use one EAS project per environment) and let EAS manage the APNs key for iOS.
    - EAS builds can't see `firebase-config/` because it's git-ignored. Provide the files to EAS, for example as EAS file environment variables, and have app.config.ts read them from there.
 4. **Builds for testers**:
    - Android APK: `npx eas-cli build -p android --profile preview` (once EAS is set up), or build locally (see [Android build](#android-build)).

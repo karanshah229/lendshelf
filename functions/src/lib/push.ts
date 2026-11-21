@@ -2,7 +2,7 @@
  * Expo push sending. `createPushSender` wires token lookup, transport and the
  * test recorder together so each piece can be replaced in tests.
  */
-import { logger } from "firebase-functions";
+import * as logger from "firebase-functions/logger";
 
 export const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 export const EXPO_BATCH_SIZE = 100;

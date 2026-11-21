@@ -10,7 +10,7 @@
  */
 import type { Loan, Visibility, WithId } from '@/types/model';
 
-import { joinNames, shortName } from '@/features/shared/people';
+import { joinNames, shortName, shortNames } from '@/features/shared/people';
 
 type L = WithId<Loan>;
 
@@ -55,15 +55,12 @@ export function requestersToDecline(
 
 /** Short name for UI labels; never cuts "Dr. Mehta" to "Dr." (QA B2). */
 const first = shortName;
-const people = (names: readonly string[]) => joinNames(names.map(first), 20);
+// One entry per request (one per person); equal names are told apart, never merged.
+const people = (names: readonly string[]) => joinNames(shortNames(names), 20);
 const quoted = (title: string) => `“${title.trim()}”`;
 /** "Ravi’s request" for one person, "requests from Ravi and Kabir" for several. */
-const whose = (names: readonly string[]) => {
-  const unique = [...new Set(names.map(first))];
-  return unique.length === 1 && names.length === 1
-    ? `${unique[0]}’s request`
-    : `requests from ${people(names)}`;
-};
+const whose = (names: readonly string[]) =>
+  names.length === 1 ? `${first(names[0])}’s request` : `requests from ${people(names)}`;
 
 export interface SheetCopy {
   title: string;
@@ -105,8 +102,9 @@ export function makePrivateSheet(
   requests: readonly { name: string; title: string }[]
 ): SheetCopy {
   const books = `${bookCount} ${bookCount === 1 ? 'book' : 'books'}`;
+  const short = shortNames(requests.map((r) => r.name));
   const list = joinNames(
-    requests.map((r) => `${first(r.name)} (${r.title})`),
+    requests.map((r, i) => `${short[i]} (${r.title})`),
     20
   );
   return {
@@ -120,7 +118,7 @@ export function makePrivateSheet(
 
 /** Setting a copy to Not lending with pending requests: Decline (default) or Keep. */
 export function notLendingSheet(names: readonly string[]): SheetCopy {
-  const many = new Set(names.map(first)).size > 1 || names.length > 1;
+  const many = names.length > 1;
   return {
     title: `${people(names)} asked for this. Decline ${many ? 'their requests' : 'their request'} too?`,
     description:

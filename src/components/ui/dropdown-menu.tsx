@@ -1,6 +1,6 @@
 import { Icon } from '@/components/ui/icon';
 import { NativeOnlyAnimatedView } from '@/components/ui/native-only-animated-view';
-import { TextClassContext } from '@/components/ui/text';
+import { PressableLabel, TextClassContext } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import * as DropdownMenuPrimitive from '@rn-primitives/dropdown-menu';
 import { Check, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react-native';
@@ -41,21 +41,26 @@ function DropdownMenuSubTrigger({
         open && 'text-accent-foreground'
       )}
     >
-      <DropdownMenuPrimitive.SubTrigger
-        className={cn(
-          'group flex flex-row items-center rounded-sm px-2 py-2 active:bg-accent sm:py-1.5',
-          Platform.select({
-            web: 'cursor-default outline-none focus:bg-accent focus:text-accent-foreground [&_svg]:pointer-events-none',
-          }),
-          className,
-          open && 'bg-accent',
-          inset && 'pl-8'
-        )}
-        {...props}
-      >
-        <>{children}</>
-        <Icon as={icon} className={cn('ml-auto size-4 shrink-0 text-foreground', iconClassName)} />
-      </DropdownMenuPrimitive.SubTrigger>
+      <PressableLabel>
+        <DropdownMenuPrimitive.SubTrigger
+          className={cn(
+            'group flex flex-row items-center rounded-sm px-2 py-2 active:bg-accent sm:py-1.5',
+            Platform.select({
+              web: 'cursor-default outline-none focus:bg-accent focus:text-accent-foreground [&_svg]:pointer-events-none',
+            }),
+            className,
+            open && 'bg-accent',
+            inset && 'pl-8'
+          )}
+          {...props}
+        >
+          <>{children}</>
+          <Icon
+            as={icon}
+            className={cn('ml-auto size-4 shrink-0 text-foreground', iconClassName)}
+          />
+        </DropdownMenuPrimitive.SubTrigger>
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }
@@ -153,22 +158,24 @@ function DropdownMenuItem({
         variant === 'destructive' && 'text-destructive group-active:text-destructive'
       )}
     >
-      <DropdownMenuPrimitive.Item
-        className={cn(
-          'group relative flex flex-row items-center gap-2 rounded-sm px-2 py-2 active:bg-accent sm:py-1.5',
-          Platform.select({
-            web: cn(
-              'cursor-default outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none',
-              variant === 'destructive' && 'focus:bg-destructive/10 dark:focus:bg-destructive/20'
-            ),
-          }),
-          variant === 'destructive' && 'active:bg-destructive/10 dark:active:bg-destructive/20',
-          props.disabled && 'opacity-50',
-          inset && 'pl-8',
-          className
-        )}
-        {...props}
-      />
+      <PressableLabel>
+        <DropdownMenuPrimitive.Item
+          className={cn(
+            'group relative flex flex-row items-center gap-2 rounded-sm px-2 py-2 active:bg-accent sm:py-1.5',
+            Platform.select({
+              web: cn(
+                'cursor-default outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none',
+                variant === 'destructive' && 'focus:bg-destructive/10 dark:focus:bg-destructive/20'
+              ),
+            }),
+            variant === 'destructive' && 'active:bg-destructive/10 dark:active:bg-destructive/20',
+            props.disabled && 'opacity-50',
+            inset && 'pl-8',
+            className
+          )}
+          {...props}
+        />
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }
@@ -182,30 +189,32 @@ function DropdownMenuCheckboxItem({
 }) {
   return (
     <TextClassContext.Provider value="text-sm text-popover-foreground select-none group-active:text-accent-foreground">
-      <DropdownMenuPrimitive.CheckboxItem
-        className={cn(
-          'group relative flex flex-row items-center gap-2 rounded-sm py-2 pl-8 pr-2 active:bg-accent sm:py-1.5',
-          Platform.select({
-            web: 'cursor-default outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none',
-          }),
-          props.disabled && 'opacity-50',
-          className
-        )}
-        {...props}
-      >
-        <View className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-          <DropdownMenuPrimitive.ItemIndicator>
-            <Icon
-              as={Check}
-              className={cn(
-                'size-4 text-foreground',
-                Platform.select({ web: 'pointer-events-none' })
-              )}
-            />
-          </DropdownMenuPrimitive.ItemIndicator>
-        </View>
-        <>{children}</>
-      </DropdownMenuPrimitive.CheckboxItem>
+      <PressableLabel>
+        <DropdownMenuPrimitive.CheckboxItem
+          className={cn(
+            'group relative flex flex-row items-center gap-2 rounded-sm py-2 pl-8 pr-2 active:bg-accent sm:py-1.5',
+            Platform.select({
+              web: 'cursor-default outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none',
+            }),
+            props.disabled && 'opacity-50',
+            className
+          )}
+          {...props}
+        >
+          <View className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+            <DropdownMenuPrimitive.ItemIndicator>
+              <Icon
+                as={Check}
+                className={cn(
+                  'size-4 text-foreground',
+                  Platform.select({ web: 'pointer-events-none' })
+                )}
+              />
+            </DropdownMenuPrimitive.ItemIndicator>
+          </View>
+          <>{children}</>
+        </DropdownMenuPrimitive.CheckboxItem>
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }
@@ -219,24 +228,26 @@ function DropdownMenuRadioItem({
 }) {
   return (
     <TextClassContext.Provider value="text-sm text-popover-foreground select-none group-active:text-accent-foreground">
-      <DropdownMenuPrimitive.RadioItem
-        className={cn(
-          'group relative flex flex-row items-center gap-2 rounded-sm py-2 pl-8 pr-2 active:bg-accent sm:py-1.5',
-          Platform.select({
-            web: 'cursor-default outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none',
-          }),
-          props.disabled && 'opacity-50',
-          className
-        )}
-        {...props}
-      >
-        <View className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-          <DropdownMenuPrimitive.ItemIndicator>
-            <View className="h-2 w-2 rounded-full bg-foreground" />
-          </DropdownMenuPrimitive.ItemIndicator>
-        </View>
-        <>{children}</>
-      </DropdownMenuPrimitive.RadioItem>
+      <PressableLabel>
+        <DropdownMenuPrimitive.RadioItem
+          className={cn(
+            'group relative flex flex-row items-center gap-2 rounded-sm py-2 pl-8 pr-2 active:bg-accent sm:py-1.5',
+            Platform.select({
+              web: 'cursor-default outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none',
+            }),
+            props.disabled && 'opacity-50',
+            className
+          )}
+          {...props}
+        >
+          <View className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+            <DropdownMenuPrimitive.ItemIndicator>
+              <View className="h-2 w-2 rounded-full bg-foreground" />
+            </DropdownMenuPrimitive.ItemIndicator>
+          </View>
+          <>{children}</>
+        </DropdownMenuPrimitive.RadioItem>
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }

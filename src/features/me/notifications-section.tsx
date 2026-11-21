@@ -13,12 +13,13 @@ import {
   registerForPush,
   type PushPermission,
 } from '@/lib/push';
+import { pushRowAction } from '@/lib/push-permission';
 import { useSessionStore } from '@/stores/session';
 
 const DETAIL: Record<PushPermission, string> = {
   granted: 'Requests, returns and due-date reminders',
   // E12: with push off, updates are only seen in the app.
-  denied: 'Notifications off. You’ll only see updates when you open the app. Tap to turn on.',
+  denied: 'Notifications off. You’ll only see updates when you open the app. Tap to turn them on in Settings.',
   undetermined: 'Off · turn on to get told about requests and due dates',
   unsupported: 'Not available on this device',
 };
@@ -43,11 +44,14 @@ export function NotificationsSection() {
 
   if (!PUSH_SUPPORTED || permission === null) return null;
 
+  // Ask the OS directly while it can still show its dialog; only a blocked permission
+  // (canAskAgain false) needs the system settings page.
+  const action = pushRowAction(permission);
   const onPress =
-    permission === 'denied'
+    action === 'openSettings'
       ? openNotificationSettings
-      : permission === 'undetermined' && uid
-        ? () => void registerForPush(uid).then(setPermission)
+      : action === 'request' && uid
+        ? () => void registerForPush(uid, { prompt: true }).then(setPermission)
         : undefined;
 
   return (

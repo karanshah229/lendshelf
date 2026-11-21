@@ -123,13 +123,21 @@ describe('loanView: borrower', () => {
     expect(actionLabel('message', v, 'Ravi Menon')).toBe('Message Ravi again');
   });
 
-  it('pick-up window: "Pick up from Ravi" with the pickup note, P Message Ravi only', () => {
+  it('pick-up window: "Pick up from Ravi" with the pickup note, P Message Ravi', () => {
     const v = asBor(asBorrower(pickupFields), { pickupNote: 'Koramangala, weekends' });
     expect(v.banner).toMatchObject({
       title: 'Pick up from Ravi',
       detail: 'Ravi said yes · pickup: Koramangala, weekends',
     });
-    expect([v.primary, v.secondary, v.tertiary]).toEqual(['message', [], ['notPickingUp']]);
+    expect([v.primary, v.secondary]).toEqual(['message', []]);
+  });
+
+  it('pick-up window: a book picked up and given back within 48 h can be marked returned (QA Android #6)', () => {
+    const v = asBor(asBorrower(pickupFields));
+    expect(v.tertiary).toEqual(['notPickingUp', 'markReturned']);
+    // Without the owner's number there's nothing to message, but returning still works.
+    const noPhone = asBor(asBorrower(pickupFields), { otherHasPhone: false });
+    expect([noPhone.primary, noPhone.tertiary]).toEqual([null, ['markReturned']]);
   });
 
   it('after 48 h the wording switches to "With you"', () => {
@@ -225,6 +233,41 @@ describe('loanView: borrower', () => {
 });
 
 describe('loanTimeline', () => {
+  it('keeps every returned / not back yet from returnEvents (QA Android #10)', () => {
+    const l = asBorrower({
+      status: 'returned',
+      requestedAt: ts(day(-20)),
+      startedAt: ts(day(-19)),
+      dueDate: ts(day(2)),
+      returnMarkedAt: ts(day(-2)),
+      notBackYetAt: null,
+      returnedAt: ts(day(-1)),
+      returnEvents: [
+        { kind: 'returnMarked', at: ts(day(-4)) },
+        { kind: 'notBackYet', at: ts(day(-3)) },
+        { kind: 'returnMarked', at: ts(day(-2)) },
+      ],
+    });
+    const borrower = loanTimeline(l, 'me', 'Ravi Menon');
+    expect(borrower.map((e) => e.label)).toEqual([
+      'You asked',
+      'Accepted (due 23 Nov)',
+      'You said you returned it',
+      'Ravi hasn’t got it back yet',
+      'You said you returned it',
+      'Confirmed back',
+    ]);
+    expect(new Set(borrower.map((e) => e.key)).size).toBe(borrower.length);
+    expect(loanTimeline({ ...l, ownerId: 'me' }, 'me', 'Asha').map((e) => e.label)).toEqual([
+      'Asha asked',
+      'Accepted (due 23 Nov)',
+      'Asha said it’s back',
+      'You said it’s not back yet',
+      'Asha said it’s back',
+      'Confirmed back',
+    ]);
+  });
+
   it('lists asked, accepted (with due), returned and confirmed', () => {
     const l = asBorrower({
       status: 'returned',

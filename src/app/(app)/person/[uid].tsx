@@ -19,11 +19,13 @@ import { useDisplayName, useLinkMap, useLinks } from '@/hooks/use-links';
 import { usePublicShelves } from '@/hooks/use-shelves';
 import { formatPhone } from '@/lib/phone';
 import { searchCopies } from '@/lib/search';
+import { greeting } from '@/lib/whatsapp';
 
 import { groupItemsByShelf } from '@/features/person/group-by-shelf';
 import { CoverGrid } from '@/features/shared/CoverCard';
 import { useBorrowedItemIds, useRequestedItemIds } from '@/features/shared/hooks';
 import { PersonAvatar, SectionHeader } from '@/features/shared/ui';
+import { shortName } from '@/features/shared/people';
 import { openWhatsApp } from '@/features/shared/whatsapp-open';
 
 type Filter = 'all' | 'available';
@@ -78,7 +80,13 @@ export default function PersonScreen() {
 
   const loading = linksLoading || (canSee && (shelvesLoading || itemsLoading));
   const message = () =>
-    link && openWhatsApp(link.ownerPhone, `Hi ${name.split(' ')[0]}! Saw your books on LendShelf.`);
+    link &&
+    // F6/R21: greet by their own profile first name, never the name saved in my contacts.
+    openWhatsApp(
+      link.ownerPhone,
+      `${greeting(link.profileName ?? profile?.name)} Saw your books on LendShelf.`
+    );
+  const short = shortName(name) || name;
 
   return (
     <Screen header={<ScreenHeader title={name} />}>
@@ -155,7 +163,7 @@ export default function PersonScreen() {
           <EmptyState
             icon={Library}
             title="No shared books yet"
-            description={`${name.split(' ')[0]} hasn’t shared any books with contacts yet.`}
+            description={`${short} hasn’t shared any books with contacts yet.`}
           />
         ) : (
           <View className="gap-4">
@@ -170,7 +178,7 @@ export default function PersonScreen() {
                   <Input
                     value={query}
                     onChangeText={setQuery}
-                    placeholder={`Search ${name.split(' ')[0]}’s books`}
+                    placeholder={`Search ${short}’s books`}
                     className="pl-9 pr-10"
                     autoCorrect={false}
                     accessibilityLabel="Search their books"

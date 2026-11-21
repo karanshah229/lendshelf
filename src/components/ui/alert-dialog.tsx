@@ -1,6 +1,7 @@
 import { buttonTextVariants, buttonVariants } from '@/components/ui/button';
+import { DialogKeyboardFrame } from '@/components/ui/dialog-keyboard-frame';
 import { NativeOnlyAnimatedView } from '@/components/ui/native-only-animated-view';
-import { TextClassContext } from '@/components/ui/text';
+import { PressableLabel, TextClassContext } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import * as AlertDialogPrimitive from '@rn-primitives/alert-dialog';
 import * as React from 'react';
@@ -41,7 +42,9 @@ function AlertDialogOverlay({
           exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.System)}
           as="Pressable"
         >
-          <>{children}</>
+          <DialogKeyboardFrame>
+            <>{children}</>
+          </DialogKeyboardFrame>
         </NativeOnlyAnimatedView>
       </AlertDialogPrimitive.Overlay>
     </FullWindowOverlay>
@@ -114,27 +117,45 @@ function AlertDialogDescription({
   );
 }
 
+type AlertDialogButtonVariant = 'default' | 'destructive' | 'outline';
+
+// `className` styles the pressable only. It is never fed into the label's classes: pressable
+// classes (`bg-*`, `active:*`, padding) on the Text draw a second box and, on native, make the
+// label swallow the tap (QA-ANDROID bug 2). Pick the look with `variant` instead.
 function AlertDialogAction({
   className,
+  variant = 'default',
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Action> & {
+  variant?: AlertDialogButtonVariant;
+}) {
   return (
-    <TextClassContext.Provider value={buttonTextVariants({ className })}>
-      <AlertDialogPrimitive.Action className={cn(buttonVariants(), className)} {...props} />
+    <TextClassContext.Provider value={buttonTextVariants({ variant })}>
+      <PressableLabel>
+        <AlertDialogPrimitive.Action
+          className={cn(buttonVariants({ variant }), props.disabled && 'opacity-50', className)}
+          {...props}
+        />
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }
 
 function AlertDialogCancel({
   className,
+  variant = 'outline',
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Cancel> & {
+  variant?: AlertDialogButtonVariant;
+}) {
   return (
-    <TextClassContext.Provider value={buttonTextVariants({ className, variant: 'outline' })}>
-      <AlertDialogPrimitive.Cancel
-        className={cn(buttonVariants({ variant: 'outline' }), className)}
-        {...props}
-      />
+    <TextClassContext.Provider value={buttonTextVariants({ variant })}>
+      <PressableLabel>
+        <AlertDialogPrimitive.Cancel
+          className={cn(buttonVariants({ variant }), props.disabled && 'opacity-50', className)}
+          {...props}
+        />
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }

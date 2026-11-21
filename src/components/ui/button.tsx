@@ -1,4 +1,4 @@
-import { TextClassContext } from '@/components/ui/text';
+import { PressableLabel, TextClassContext } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Platform, Pressable, type Insets } from 'react-native';
@@ -114,12 +114,18 @@ const HIT_SLOP: Record<NonNullable<ButtonProps['size']>, Insets> = {
 function Button({ className, variant, size, ...props }: ButtonProps) {
   return (
     <TextClassContext.Provider value={buttonTextVariants({ variant, size })}>
-      <Pressable
-        className={cn(props.disabled && 'opacity-50', buttonVariants({ variant, size }), className)}
-        role="button"
-        hitSlop={HIT_SLOP[size ?? 'default']}
-        {...props}
-      />
+      <PressableLabel>
+        <Pressable
+          className={cn(
+            props.disabled && 'opacity-50',
+            buttonVariants({ variant, size }),
+            className
+          )}
+          role="button"
+          hitSlop={HIT_SLOP[size ?? 'default']}
+          {...props}
+        />
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }

@@ -59,6 +59,8 @@ export function SearchPanel({
             <Pressable
               onPress={() => setText('')}
               className="absolute right-1 size-8 items-center justify-center rounded-full active:bg-accent"
+              // 32 dp circle, 48 dp touch target (F8).
+              hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Clear search"
             >

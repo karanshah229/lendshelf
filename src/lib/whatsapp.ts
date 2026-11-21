@@ -20,7 +20,8 @@ export function waLink(phoneE164: string, text?: string): string {
 export function greeting(profileName: string | null | undefined): string {
   // First word of the profile name, but a profile name that starts with a title stays whole
   // ("Dr. Mehta" → "Hi Dr. Mehta!", never "Hi Dr.!").
-  const first = typeof profileName === 'string' ? shortName(profileName) : '';
+  // The greeting is to that one person, so it isn't widened to tell circle names apart.
+  const first = typeof profileName === 'string' ? shortName(profileName, []) : '';
   return first ? `Hi ${first}!` : 'Hi!';
 }
 

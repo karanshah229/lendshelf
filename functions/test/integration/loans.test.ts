@@ -434,6 +434,20 @@ describe("B3: markNotReturned", () => {
     expect(loan?.status).toBe("returned");
     expect(loan?.notBackYetAt).toBeNull();
   });
+
+  it("returnEvents keeps every returned / not back yet for the timeline (QA Android #10)", async () => {
+    const { loanId } = await activeLoanFromRequest();
+    await ravi.call("markReturned", { loanId });
+    await asha.call("markNotReturned", { loanId });
+    await ravi.call("markReturned", { loanId });
+    await asha.call("confirmReturn", { loanId });
+    const loan = await getDoc<LoanDoc>(COL.loans, loanId);
+    expect(loan?.status).toBe("returned");
+    expect(loan?.returnEvents?.map((e) => e.kind)).toEqual(["returnMarked", "notBackYet", "returnMarked"]);
+    for (const e of loan?.returnEvents ?? []) expect(e.at).toBeInstanceOf(Timestamp);
+    const times = (loan?.returnEvents ?? []).map((e) => e.at.toMillis());
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+  });
 });
 
 describe("B6: updateDueDate tells the borrower", () => {

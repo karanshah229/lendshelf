@@ -3,10 +3,9 @@
  * tests build their own with fakes (push sender, clock, fetch).
  */
 import { getApps, initializeApp, type App } from "firebase-admin/app";
-import { getAuth, type Auth } from "firebase-admin/auth";
-import { FieldValue, getFirestore, Timestamp, type Firestore } from "firebase-admin/firestore";
-import { getStorage } from "firebase-admin/storage";
-import { logger } from "firebase-functions";
+import type { Auth } from "firebase-admin/auth";
+import { FieldValue, getFirestore, initializeFirestore, Timestamp, type Firestore } from "firebase-admin/firestore";
+import * as logger from "firebase-functions/logger";
 import type { FetchLike } from "./books.js";
 import { createPushSender, expoTransport, type PushSender } from "./push.js";
 import { COL, type UserDoc } from "../model.js";
@@ -77,16 +76,39 @@ export function firestorePushRecorder(db: Firestore) {
   };
 }
 
+/**
+ * Firestore over REST (HTTP/1.1) instead of gRPC, so a cold start skips the
+ * gRPC channel and protobuf set-up. The SDK switches to gRPC by itself if a
+ * call ever needs streaming (handlers use none). Falls back to the existing
+ * instance if something already initialised Firestore on this app.
+ */
+function restFirestore(app: App): Firestore {
+  try {
+    return initializeFirestore(app, { preferRest: true });
+  } catch {
+    return getFirestore(app);
+  }
+}
+
 let cached: Deps | null = null;
 
+/**
+ * Built on first use, once per instance. firebase-admin/auth and /storage are
+ * required lazily: most functions never use them, and loading them adds to
+ * every cold start.
+ */
 export function defaultDeps(): Deps {
   if (cached) return cached;
   const app = adminApp();
-  const db = getFirestore(app);
+  const db = restFirestore(app);
   const fetchImpl = globalThis.fetch.bind(globalThis);
+  let auth: Auth | undefined;
   cached = {
     db,
-    auth: getAuth(app),
+    get auth() {
+      auth ??= (require("firebase-admin/auth") as typeof import("firebase-admin/auth")).getAuth(app);
+      return auth;
+    },
     now: () => new Date(),
     fetch: fetchImpl as unknown as FetchLike,
     push: createPushSender({
@@ -98,6 +120,7 @@ export function defaultDeps(): Deps {
     }),
     deleteUserFiles: async (uid) => {
       try {
+        const { getStorage } = require("firebase-admin/storage") as typeof import("firebase-admin/storage");
         await getStorage(app).bucket().deleteFiles({ prefix: `covers/${uid}/` });
       } catch (err) {
         logger.warn("Deleting cover photos failed", { uid, error: String(err) });

@@ -24,7 +24,7 @@ import type { Item, WithId } from '@/types/model';
 import { newOnLendShelf } from '@/features/contacts/resync';
 import { useInvite } from '@/features/invite/use-invite';
 import { useNow } from '@/features/loans/use-needs-you';
-import { joinNames, shortName } from '@/features/shared/people';
+import { joinNames, shortName, shortNames } from '@/features/shared/people';
 import { openWhatsApp, requestFollowUpMessage } from '@/features/loans/messages';
 import { useLoanPeople } from '@/features/loans/use-loan-people';
 import { circleCopiesForBook, summarizeCircleCopies } from '@/features/book/circle-copies';
@@ -148,6 +148,8 @@ function CircleRow({ links, counts }: { links: LinkedOwner[]; counts: Map<string
     [links, counts, fresh]
   );
   const newNames = people.filter((p) => fresh.has(p.ownerId)).map((p) => p.displayName);
+  // Kept apart from each other: two friends never share a label (QA Android #4).
+  const labels = shortNames(people.map((p) => p.displayName));
   return (
     <View>
       <SectionHeader
@@ -157,7 +159,7 @@ function CircleRow({ links, counts }: { links: LinkedOwner[]; counts: Map<string
       {newNames.length ? (
         <View className="flex-row pb-3">
           <Badge variant="secondary">
-            <Text>New on LendShelf: {joinNames(newNames.map((n) => n.split(' ')[0] ?? n))}</Text>
+            <Text>New on LendShelf: {joinNames(shortNames(newNames))}</Text>
           </Badge>
         </View>
       ) : null}
@@ -168,7 +170,7 @@ function CircleRow({ links, counts }: { links: LinkedOwner[]; counts: Map<string
         className="-mx-4"
         contentContainerStyle={{ paddingHorizontal: 16 }}
       >
-        {people.map((p) => {
+        {people.map((p, i) => {
           const n = counts.get(p.ownerId) ?? 0;
           return (
             <Pressable
@@ -183,8 +185,8 @@ function CircleRow({ links, counts }: { links: LinkedOwner[]; counts: Map<string
                 size="lg"
                 className={fresh.has(p.ownerId) ? 'border-2 border-primary' : undefined}
               />
-              <Text className="text-center text-xs font-medium" numberOfLines={1}>
-                {p.displayName.split(' ')[0]}
+              <Text className="text-center text-xs font-medium" numberOfLines={2}>
+                {labels[i] || p.displayName}
               </Text>
               <Text className="-mt-1 text-[10px] text-muted-foreground">
                 {n} {n === 1 ? 'book' : 'books'}
@@ -222,7 +224,7 @@ function NewFromPerson({
 }) {
   const [open, setOpen] = useState(false);
   const n = group.items.length;
-  const title = `${name.split(' ')[0]} added ${n === 1 ? group.items[0]!.title : `${n} books`}`;
+  const title = `${shortName(name) || name} added ${n === 1 ? group.items[0]!.title : `${n} books`}`;
   return (
     <Card className="gap-0 py-0">
       <Pressable

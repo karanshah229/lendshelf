@@ -142,6 +142,17 @@ All callables require a signed-in user. Errors are `HttpsError`s (`invalid-argum
 
 Due dates: a date-only string like `"2026-12-12"` is midnight UTC that day. Due dates can't be in the past (today is allowed) or more than a year ahead.
 
+### Cold starts
+
+Every function is deployed from this one codebase, so every instance loads `lib/index.js`. To keep start-up short without `minInstances` (which bills idle time):
+
+- `src/index.ts` imports only `firebase-functions/v2/options`, `/v2/https` and `/logger`. Never import the package root (`"firebase-functions"`) or `"firebase-functions/v2"`: they load every provider (about 0.6 s).
+- It defines only the function named by `FUNCTION_TARGET` (set by Cloud Functions and the emulator). With no target (deploy discovery, emulator start-up) or an unknown one, it defines all of them. **Add new functions to `FUNCTION_NAMES` and wrap them in `only()`/`callable()`.**
+- Handler modules (and zod, firebase-admin/firestore) are `require`d on the first call; firebase-admin/auth and /storage only when used.
+- Firestore uses `preferRest: true` (REST instead of gRPC channel set-up on the first query).
+
+Runtime settings are left at the defaults (1 vCPU, 256 MiB, concurrency 80, startup CPU boost on); more CPU barely helps single-threaded module loading.
+
 ### Push notifications
 
 `sendPush(uids, { title, body, data })` reads `users/{uid}.pushTokens` (Expo tokens) and POSTs to `https://exp.host/--/api/v2/push/send` in batches of 100. Every push has `data.type` (`loanRequested`, `requestAccepted`, `requestDeclined`, `lentToYou`, `markedReturned`, `reviewPrompt`, `itemBack`, `availableAgain`, `wishlistAdded`, `itemRemoved`, `requestExpired`, `dueSoon`, `overdue`, `notBackYet`, `dueChanged`, `ownerLeft`) plus `loanId` / `itemId` / `workId` for routing taps. `requestDeclined` also carries `reason` when there is one.

@@ -64,6 +64,14 @@ const ARIA_LEVEL: Partial<Record<TextVariant, string>> = {
 
 const TextClassContext = React.createContext<string | undefined>(undefined);
 
+/**
+ * True inside a pressable container (Button, AlertDialogAction, Toggle, …). A label there must
+ * never become the touch target itself: on native, NativeWind gives a Text with an `active:`,
+ * `hover:` or `focus:` class its own `onPress`, so the Text answers the touch and the parent's
+ * `onPress` never fires. Web already does this with `pointer-events-none` on button text.
+ */
+const PressableLabelContext = React.createContext(false);
+
 function Text({
   className,
   asChild = false,
@@ -75,15 +83,32 @@ function Text({
     asChild?: boolean;
   }) {
   const textClass = React.useContext(TextClassContext);
+  const insidePressable = React.useContext(PressableLabelContext);
   const Component = asChild ? Slot : RNText;
   return (
     <Component
       className={cn(textVariants({ variant }), textClass, className)}
       role={variant ? ROLE[variant] : undefined}
       aria-level={variant ? ARIA_LEVEL[variant] : undefined}
+      pointerEvents={labelPointerEvents(insidePressable, props)}
       {...props}
     />
   );
 }
 
-export { Text, TextClassContext };
+/** A label inside a pressable lets touches through to it, unless it is pressable itself. */
+function labelPointerEvents(
+  insidePressable: boolean,
+  props: { onPress?: unknown; onLongPress?: unknown }
+): 'none' | undefined {
+  return insidePressable && props.onPress == null && props.onLongPress == null
+    ? 'none'
+    : undefined;
+}
+
+/** Marks its children as the label of a pressable (see `PressableLabelContext`). */
+function PressableLabel({ children }: { children: React.ReactNode }) {
+  return <PressableLabelContext.Provider value={true}>{children}</PressableLabelContext.Provider>;
+}
+
+export { labelPointerEvents, PressableLabel, PressableLabelContext, Text, TextClassContext };

@@ -14,7 +14,12 @@ import { Card } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { openContactsSettings } from '@/features/contacts/use-auto-resync';
-import { addBooksLabel, syncErrorText, type SetupCopy } from '@/features/first-run/first-run';
+import {
+  addBooksLabel,
+  setupBooksLine,
+  syncErrorText,
+  type SetupCopy,
+} from '@/features/first-run/first-run';
 import type { SetupCardState, SetupStep } from '@/features/home/home';
 import { useInvite } from '@/features/invite/use-invite';
 import { EditProfileDialog } from '@/features/me/edit-profile-dialog';
@@ -46,7 +51,7 @@ export function SetupCard({
   state: SetupCardState;
   /** Title, body and the people step's action for the user's case (E2a). */
   copy: SetupCopy;
-  /** First names in the circle, for "Asha and Ravi can borrow from you once you add yours." */
+  /** Names of the people I saved, for the line under Add your books (`setupBooksLine`). */
   friendNames: readonly string[];
   profileName: string;
   pickupNote: string | null;
@@ -91,9 +96,11 @@ export function SetupCard({
         ? addBooksLabel(CAN_SCAN)
         : STEP_LABEL.pickup;
   const title = copy.title ?? `Get set up · ${state.done} of 3`;
-  const friends = joinNames(
-    friendNames.map((n) => shortName(n) || n),
-    2
+  const booksLine = setupBooksLine(
+    joinNames(
+      friendNames.map((n) => shortName(n) || n),
+      2
+    )
   );
 
   return (
@@ -129,9 +136,7 @@ export function SetupCard({
             accessibilityLabel={[
               STEP_LABEL[step],
               done ? 'done' : 'not done yet',
-              step === 'books' && !done && friends
-                ? `${friends} can borrow from you once you add yours`
-                : null,
+              step === 'books' && !done ? booksLine : null,
             ]
               .filter(Boolean)
               .join(', ')}
@@ -151,10 +156,8 @@ export function SetupCard({
               <Text className={done ? 'text-sm text-muted-foreground' : 'text-sm font-medium'}>
                 {STEP_LABEL[step]}
               </Text>
-              {step === 'books' && !done && friends ? (
-                <Text className="text-xs text-muted-foreground">
-                  {friends} can borrow from you once you add yours.
-                </Text>
+              {step === 'books' && !done && booksLine ? (
+                <Text className="text-xs text-muted-foreground">{booksLine}</Text>
               ) : null}
             </View>
           </View>

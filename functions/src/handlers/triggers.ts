@@ -1,4 +1,4 @@
-import { logger } from "firebase-functions";
+import * as logger from "firebase-functions/logger";
 import { COL, linkId, type ItemDoc, type LoanDoc, type ProfileDoc, type WatchDoc } from "../model.js";
 import { ts, type Deps } from "../lib/context.js";
 import { msg } from "../lib/messages.js";

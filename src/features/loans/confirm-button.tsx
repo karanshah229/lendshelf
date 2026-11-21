@@ -12,10 +12,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Button, buttonVariants, type ButtonProps } from '@/components/ui/button';
+import { Button, type ButtonProps } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
-import { cn } from '@/lib/utils';
 
 export interface ConfirmButtonProps {
   label: string;
@@ -64,11 +63,8 @@ export function ConfirmButton({
           <AlertDialogCancel>
             <Text>Not now</Text>
           </AlertDialogCancel>
-          <AlertDialogAction
-            onPress={onConfirm}
-            className={cn(destructive && buttonVariants({ variant: 'destructive' }))}
-          >
-            <Text className={cn(destructive && 'text-white')}>{confirmLabel}</Text>
+          <AlertDialogAction onPress={onConfirm} variant={destructive ? 'destructive' : 'default'}>
+            <Text>{confirmLabel}</Text>
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

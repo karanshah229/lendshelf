@@ -301,7 +301,11 @@ export function loanView({
         },
         primary: wa('message'),
         secondary: [],
-        tertiary: list(wa('notPickingUp')),
+        // The window is wording only (E4: no "picked up" flag), so the app can't tell whether
+        // they already have it. A book picked up and given back within 48 h must still be
+        // closable by the borrower (QA Android #6), so "I've returned it" stays available,
+        // quietly: it goes through a confirm sheet, and the owner still confirms the return.
+        tertiary: list(wa('notPickingUp'), 'markReturned'),
       };
     case 'reading':
     case 'dueSoon':
@@ -497,22 +501,28 @@ export function loanTimeline(loan: Loan, uid: string, other: string): TimelineEn
     });
   }
 
-  const marked = at(loan.returnMarkedAt);
-  if (marked) {
-    out.push({
-      key: 'marked',
-      label: owner ? `${name} said it’s back` : 'You said you returned it',
-      at: marked,
+  const markedLabel = owner ? `${name} said it’s back` : 'You said you returned it';
+  const notBackLabel = owner ? 'You said it’s not back yet' : `${name} hasn’t got it back yet`;
+  // Every "returned" / "not back yet" when the server kept the history (QA Android #10);
+  // older loans only have the latest of each, from the single fields.
+  const events = (loan.returnEvents ?? []).filter((e) => e?.at);
+  let marked: Date | null;
+  if (events.length) {
+    marked = null;
+    events.forEach((e, i) => {
+      const when = e.at.toDate();
+      if (e.kind === 'returnMarked') {
+        marked = when;
+        out.push({ key: `marked-${i}`, label: markedLabel, at: when });
+      } else {
+        out.push({ key: `notBackYet-${i}`, label: notBackLabel, at: when });
+      }
     });
-  }
-
-  const notBack = at(loan.notBackYetAt);
-  if (notBack) {
-    out.push({
-      key: 'notBackYet',
-      label: owner ? 'You said it’s not back yet' : `${name} hasn’t got it back yet`,
-      at: notBack,
-    });
+  } else {
+    marked = at(loan.returnMarkedAt);
+    if (marked) out.push({ key: 'marked', label: markedLabel, at: marked });
+    const notBack = at(loan.notBackYetAt);
+    if (notBack) out.push({ key: 'notBackYet', label: notBackLabel, at: notBack });
   }
 
   const end = at(loan.returnedAt) ?? at(loan.updatedAt);

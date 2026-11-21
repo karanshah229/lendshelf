@@ -420,8 +420,8 @@ export function DeleteCopySection({ item, state }: { item: WithId<Item>; state: 
             <AlertDialogCancel>
               <Text>Cancel</Text>
             </AlertDialogCancel>
-            <AlertDialogAction onPress={remove} className="bg-destructive">
-              <Text className="text-white">Delete</Text>
+            <AlertDialogAction onPress={remove} variant="destructive">
+              <Text>Delete</Text>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

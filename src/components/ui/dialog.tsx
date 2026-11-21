@@ -1,3 +1,4 @@
+import { DialogKeyboardFrame } from '@/components/ui/dialog-keyboard-frame';
 import { Icon } from '@/components/ui/icon';
 import { NativeOnlyAnimatedView } from '@/components/ui/native-only-animated-view';
 import { cn } from '@/lib/utils';
@@ -54,12 +55,14 @@ function DialogOverlay({
           exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.System)}
           as="Pressable"
         >
-          <NativeOnlyAnimatedView
-            entering={FadeIn.delay(50).reduceMotion(ReduceMotion.System)}
-            exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.System)}
-          >
-            <>{children}</>
-          </NativeOnlyAnimatedView>
+          <DialogKeyboardFrame>
+            <NativeOnlyAnimatedView
+              entering={FadeIn.delay(50).reduceMotion(ReduceMotion.System)}
+              exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.System)}
+            >
+              <>{children}</>
+            </NativeOnlyAnimatedView>
+          </DialogKeyboardFrame>
         </NativeOnlyAnimatedView>
       </DialogPrimitive.Overlay>
     </FullWindowOverlay>
@@ -89,13 +92,15 @@ function DialogContent({
           <>{children}</>
           <DialogPrimitive.Close
             className={cn(
-              'absolute right-4 top-4 rounded opacity-70 active:opacity-100',
+              // Padding, not just hitSlop: the 16 dp icon gets a real 44 dp box, so the target holds
+              // on Android, where touches outside the parent's bounds never arrive (QA-ANDROID polish).
+              'absolute right-1 top-1 items-center justify-center rounded-full p-3.5 opacity-70 active:opacity-100',
               Platform.select({
                 web: 'ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 data-[state=open]:bg-accent',
               })
             )}
-            // 16 dp icon, 48 dp touch target (UX §F8).
-            hitSlop={17}
+            // 44 dp box + 2 dp each side = 48 dp touch target (UX §F8).
+            hitSlop={2}
             accessibilityLabel="Close"
           >
             <Icon

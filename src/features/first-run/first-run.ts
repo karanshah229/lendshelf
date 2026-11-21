@@ -139,14 +139,24 @@ export function setupCopy(input: {
 export const addBooksLabel = (canScan: boolean) =>
   canScan ? 'Scan your shelf' : 'Search for a book';
 
+/**
+ * The line under "Add your books" on the setup card (E2a). One-way matching: people see my
+ * books only if THEY saved my number, and I only know whom I saved, so never promise that a
+ * named person can borrow (QA-ANDROID bug 8). `friends` is already joined ("Asha and Ravi").
+ */
+export function setupBooksLine(friends: string): string | null {
+  if (!friends) return null;
+  return `Once you add yours, ${friends} can ask to borrow them if they have your number saved.`;
+}
+
 // ---------- My books (welcome) ----------
 
-/** The extra line on My books' welcome screen (E2a). */
+/** The extra line on My books' welcome screen (E2a). Same one-way caveat as above. */
 export function libraryWelcomeLine(friendNames: readonly string[]): string {
   if (!friendNames.length) {
     return 'Even before friends join, you can lend books to anyone and LendShelf remembers who has them.';
   }
-  return `${joinNames(friendNames.map(firstName), 2)} will see what you add. You choose what they can borrow.`;
+  return `${joinNames(friendNames.map(firstName), 2)} will see what you add if they have your number saved. You choose what they can borrow.`;
 }
 
 // ---------- Loans (empty) ----------

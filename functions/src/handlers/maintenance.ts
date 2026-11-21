@@ -1,4 +1,4 @@
-import { logger } from "firebase-functions";
+import * as logger from "firebase-functions/logger";
 import { trackedBulkWriter } from "../lib/bulk.js";
 import { ts, type Deps } from "../lib/context.js";
 import { reminderKind, requestExpiryCutoff } from "../lib/loans.js";

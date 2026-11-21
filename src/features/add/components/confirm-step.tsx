@@ -199,6 +199,8 @@ export function ConfirmStep({
                         onPress={() => onRemove(c.key)}
                         disabled={saving}
                         className="size-8 items-center justify-center rounded-full active:bg-accent"
+                        // 32 dp circle, 48 dp touch target (F8).
+                        hitSlop={8}
                         accessibilityRole="button"
                         accessibilityLabel={`Don’t add ${c.title}`}
                       >
@@ -280,7 +282,12 @@ export function ConfirmStep({
                   />
                   <View className="flex-1">
                     <Text className="text-sm font-semibold">{v.title}</Text>
-                    <Text className="text-xs text-muted-foreground">{v.body}</Text>
+                    <Text className="text-xs text-muted-foreground">
+                      {/* A private collection hides it whatever is picked here (QA-ANDROID polish). */}
+                      {shelf && !shelf.isPublic && v.value !== 'hidden'
+                        ? 'Applies if you move it to a shared collection.'
+                        : v.body}
+                    </Text>
                   </View>
                   <View
                     className={cn(

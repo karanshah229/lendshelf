@@ -7,8 +7,9 @@
  * - The Expo push token is registered with the `registerPushToken` callable (which also removes
  *   it from any other account on this device, DECISIONS #26) and removed again on sign-out with
  *   `unregisterPushToken`.
- * - Needs `extra.eas.projectId` in the app config (set by `eas init`). Without it, registration
- *   is skipped with a warning: everything else keeps working.
+ * - Needs an EAS project id: `extra.eas.projectId`, which app.config.ts fills from
+ *   EAS_PROJECT_ID(_DEV/_PROD) or a static app.json (`eas init` can't edit the dynamic config).
+ *   Without it, registration is skipped with a warning: everything else keeps working.
  */
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
@@ -16,13 +17,14 @@ import * as Notifications from 'expo-notifications';
 import { Linking, Platform } from 'react-native';
 
 import { api } from '@/lib/api';
+import { toPushPermission, type PushPermission } from '@/lib/push-permission';
+
+export type { PushPermission } from '@/lib/push-permission';
 
 export const PUSH_SUPPORTED = true;
 
 /** Android channel every LendShelf push is posted to (the backend sends no channelId). */
 export const ANDROID_CHANNEL_ID = 'default';
-
-export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unsupported';
 
 let handlerSet = false;
 /** Token registered for the signed-in user on this device (removed on sign-out). */
@@ -65,8 +67,7 @@ function easProjectId(): string | null {
 /** Current notification permission without prompting. */
 export async function getPushPermission(): Promise<PushPermission> {
   if (!Device.isDevice) return 'unsupported';
-  const { status } = await Notifications.getPermissionsAsync();
-  return status === 'granted' ? 'granted' : status === 'denied' ? 'denied' : 'undetermined';
+  return toPushPermission(await Notifications.getPermissionsAsync());
 }
 
 /** Permission plus whether the system dialog can still be shown (for the in-context ask, C11). */
@@ -76,9 +77,7 @@ export async function getPushPermissionState(): Promise<{
 }> {
   if (!Device.isDevice) return { permission: 'unsupported', canAskAgain: false };
   const res = await Notifications.getPermissionsAsync();
-  const permission =
-    res.status === 'granted' ? 'granted' : res.status === 'denied' ? 'denied' : 'undetermined';
-  return { permission, canAskAgain: res.canAskAgain };
+  return { permission: toPushPermission(res), canAskAgain: res.canAskAgain };
 }
 
 /**
@@ -102,9 +101,7 @@ export async function registerForPush(
     if (perm.status !== 'granted' && perm.canAskAgain && prompt) {
       perm = await Notifications.requestPermissionsAsync();
     }
-    if (perm.status !== 'granted') {
-      return perm.status === 'denied' ? 'denied' : 'undetermined';
-    }
+    if (perm.status !== 'granted') return toPushPermission(perm);
 
     const projectId = easProjectId();
     if (!projectId) {

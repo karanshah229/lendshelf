@@ -1,5 +1,6 @@
+import { FieldValue } from "firebase-admin/firestore";
 import type { DocumentReference, Firestore, QuerySnapshot, Timestamp, Transaction } from "firebase-admin/firestore";
-import { logger } from "firebase-functions";
+import * as logger from "firebase-functions/logger";
 import { z } from "zod";
 import { ts, type Caller, type Deps } from "../lib/context.js";
 import { denied, HttpsError, notFound, parseInput, precondition } from "../lib/errors.js";
@@ -344,6 +345,7 @@ export async function markReturned(deps: Deps, caller: Caller, data: unknown): P
       status: nextStatus(loan.status, "markReturned"),
       returnMarkedAt: now,
       notBackYetAt: null,
+      returnEvents: FieldValue.arrayUnion({ kind: "returnMarked", at: now }),
       updatedAt: now,
     });
     return loan;
@@ -428,8 +430,9 @@ export async function confirmReturn(deps: Deps, caller: Caller, data: unknown): 
  * book. `returnPending` -> `active`, `returnMarkedAt` cleared, so the daily
  * reminders apply again. `notBackYetAt` records it so the borrower's app can
  * say "Ravi hasn't got it back yet" even without a push; the next
- * markReturned or confirmReturn clears it. The borrower is told if they have
- * the owner saved.
+ * markReturned or confirmReturn clears it; `returnEvents` keeps every
+ * "returned" / "not back yet" for the loan's timeline. The borrower is told
+ * if they have the owner saved.
  */
 export async function markNotReturned(deps: Deps, caller: Caller, data: unknown): Promise<{ ok: true }> {
   const { loanId } = parseInput(loanIdSchema, data);
@@ -442,6 +445,7 @@ export async function markNotReturned(deps: Deps, caller: Caller, data: unknown)
       status: nextStatus(loan.status, "markNotReturned"),
       returnMarkedAt: null,
       notBackYetAt: now,
+      returnEvents: FieldValue.arrayUnion({ kind: "notBackYet", at: now }),
       updatedAt: now,
     });
     return loan;

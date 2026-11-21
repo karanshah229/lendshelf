@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, usePreventRemove } from 'expo-router';
 import { BookX, PenLine, ScanBarcode, Search } from 'lucide-react-native';
 import { useCallback, useMemo, useReducer, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { AddedStep } from '@/features/add/components/added-step';
 import type { ScanOutcome } from '@/features/add/components/barcode-camera';
@@ -25,6 +25,7 @@ import { ManualPanel, type ManualPrefill } from '@/features/add/components/manua
 import { ScanPanel } from '@/features/add/components/scan-panel';
 import { SearchPanel } from '@/features/add/components/search-panel';
 import { readBarcode } from '@/features/add/isbn';
+import { discardCopy, leaveDecision } from '@/features/add/leave';
 import type { OlSearchResult } from '@/features/add/open-library';
 import { initialScanQueue, scanQueueReducer, summariseScanQueue } from '@/features/add/scan-queue';
 import {
@@ -79,12 +80,17 @@ export default function AddScreen() {
     parseAddMode(param(params.mode)) ?? (Platform.OS === 'web' ? 'search' : 'scan')
   );
   const [step, setStep] = useState<Step>(workIdParam ? { kind: 'work' } : { kind: 'pick' });
-  /** "Type it in" has unsaved text (read on Back only, so a ref). */
-  const manualDraft = useRef(false);
-  const onManualDraft = useCallback((has: boolean) => {
-    manualDraft.current = has;
-  }, []);
-  const [confirmLeave, setConfirmLeave] = useState(false);
+  /** "Type it in" has unsaved text. */
+  const [manualDraft, setManualDraft] = useState(false);
+  const onManualDraft = useCallback((has: boolean) => setManualDraft(has), []);
+  /** The discard confirm, holding the blocked navigation to replay on "Discard". */
+  const [confirmLeave, setConfirmLeave] = useState<{
+    queued: number;
+    typed: boolean;
+    repeat(): void;
+  } | null>(null);
+  /** Set on "Discard" so the replayed navigation isn't blocked again. */
+  const [leaving, setLeaving] = useState(false);
   const [resolvingKey, setResolvingKey] = useState<string | null>(null);
   const [manual, setManual] = useState<{ key: number; prefill: ManualPrefill }>({
     key: 0,
@@ -171,13 +177,29 @@ export default function AddScreen() {
     setStep({ kind: 'done', result, origin });
   };
 
-  const backFromStep = () => {
-    if (step.kind === 'confirm' && step.origin !== 'work') setStep({ kind: 'pick' });
-    // F2: a full-screen task asks before throwing away what was typed (QA B17).
-    else if (step.kind === 'pick' && mode === 'manual' && manualDraft.current)
-      setConfirmLeave(true);
-    else close();
+  // Back from the header, Android hardware Back and the back gesture all land here: Review goes
+  // back a step, and leaving with a scan queue or typed text asks first (E8, F2, QA-ANDROID 3).
+  const decision = leaveDecision({
+    step: step.kind,
+    confirmOrigin: step.kind === 'confirm' ? step.origin : undefined,
+    queued: queue.entries.length,
+    typed: manualDraft,
+  });
+  usePreventRemove(!leaving && decision.kind !== 'leave', ({ repeat }) => {
+    if (decision.kind === 'stepBack') setStep({ kind: 'pick' });
+    else if (decision.kind === 'confirm') setConfirmLeave({ ...decision, repeat });
+  });
+
+  // Leaving goes through `close`, so the guard above sees it too.
+  const backFromStep = () => (decision.kind === 'stepBack' ? setStep({ kind: 'pick' }) : close());
+
+  const discard = () => {
+    const blocked = confirmLeave;
+    setConfirmLeave(null);
+    setLeaving(true);
+    blocked?.repeat();
   };
+  const discardText = discardCopy(confirmLeave?.queued ?? 0, confirmLeave?.typed ?? false);
 
   const title =
     step.kind === 'confirm'
@@ -284,24 +306,23 @@ export default function AddScreen() {
           onAddMore={() => setStep({ kind: 'pick' })}
         />
       ) : null}
-      <AlertDialog open={confirmLeave} onOpenChange={setConfirmLeave}>
+      <AlertDialog
+        open={confirmLeave !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmLeave(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Discard this book?</AlertDialogTitle>
-            <AlertDialogDescription>What you typed won’t be saved.</AlertDialogDescription>
+            <AlertDialogTitle>{discardText.title}</AlertDialogTitle>
+            <AlertDialogDescription>{discardText.body}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>
-              <Text>Keep editing</Text>
+              <Text>{discardText.keep}</Text>
             </AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: 'destructive' })}
-              onPress={() => {
-                manualDraft.current = false;
-                close();
-              }}
-            >
-              <Text className="text-white">Discard</Text>
+            <AlertDialogAction variant="destructive" onPress={discard}>
+              <Text>Discard</Text>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

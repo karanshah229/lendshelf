@@ -1,9 +1,11 @@
 /** Push notifications aren't used on web (dev/demo build). Same surface as `push.ts`. */
+import type { PushPermission } from '@/lib/push-permission';
+
+export type { PushPermission } from '@/lib/push-permission';
+
 export const PUSH_SUPPORTED = false;
 
 export const ANDROID_CHANNEL_ID = 'default';
-
-export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unsupported';
 
 export async function getPushPermission(): Promise<PushPermission> {
   return 'unsupported';

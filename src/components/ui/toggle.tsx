@@ -1,5 +1,5 @@
 import { Icon } from '@/components/ui/icon';
-import { TextClassContext } from '@/components/ui/text';
+import { PressableLabel, TextClassContext } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import * as TogglePrimitive from '@rn-primitives/toggle';
 import { cva, type VariantProps } from 'class-variance-authority';
@@ -50,19 +50,21 @@ function Toggle({
         'text-sm text-foreground font-medium',
         props.pressed
           ? 'text-accent-foreground'
-          : Platform.select({ web: 'group-hover:text-muted-foreground' }),
-        className
+          : Platform.select({ web: 'group-hover:text-muted-foreground' })
       )}
     >
-      <TogglePrimitive.Root
-        className={cn(
-          toggleVariants({ variant, size }),
-          props.disabled && 'opacity-50',
-          props.pressed && 'bg-accent',
-          className
-        )}
-        {...props}
-      />
+      {/* `className` styles the pressable only; on the label it would swallow taps (bug 2). */}
+      <PressableLabel>
+        <TogglePrimitive.Root
+          className={cn(
+            toggleVariants({ variant, size }),
+            props.disabled && 'opacity-50',
+            props.pressed && 'bg-accent',
+            className
+          )}
+          {...props}
+        />
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }

@@ -1,5 +1,5 @@
 import { Icon } from '@/components/ui/icon';
-import { TextClassContext } from '@/components/ui/text';
+import { PressableLabel, TextClassContext } from '@/components/ui/text';
 import { toggleVariants } from '@/components/ui/toggle';
 import { cn } from '@/lib/utils';
 import * as ToggleGroupPrimitive from '@rn-primitives/toggle-group';
@@ -68,28 +68,30 @@ function ToggleGroupItem({
           : Platform.select({ web: 'group-hover:text-muted-foreground' })
       )}
     >
-      <ToggleGroupPrimitive.Item
-        className={cn(
-          toggleVariants({
-            variant: context.variant || variant,
-            size: context.size || size,
-          }),
-          props.disabled && 'opacity-50',
-          ToggleGroupPrimitive.utils.getIsSelected(value, props.value) && 'bg-accent',
-          'min-w-0 shrink-0 rounded-none shadow-none',
-          isFirst && 'rounded-l-md',
-          isLast && 'rounded-r-md',
-          (context.variant === 'outline' || variant === 'outline') && 'border-l-0',
-          (context.variant === 'outline' || variant === 'outline') && isFirst && 'border-l',
-          Platform.select({
-            web: 'flex-1 focus:z-10 focus-visible:z-10',
-          }),
-          className
-        )}
-        {...props}
-      >
-        {children}
-      </ToggleGroupPrimitive.Item>
+      <PressableLabel>
+        <ToggleGroupPrimitive.Item
+          className={cn(
+            toggleVariants({
+              variant: context.variant || variant,
+              size: context.size || size,
+            }),
+            props.disabled && 'opacity-50',
+            ToggleGroupPrimitive.utils.getIsSelected(value, props.value) && 'bg-accent',
+            'min-w-0 shrink-0 rounded-none shadow-none',
+            isFirst && 'rounded-l-md',
+            isLast && 'rounded-r-md',
+            (context.variant === 'outline' || variant === 'outline') && 'border-l-0',
+            (context.variant === 'outline' || variant === 'outline') && isFirst && 'border-l',
+            Platform.select({
+              web: 'flex-1 focus:z-10 focus-visible:z-10',
+            }),
+            className
+          )}
+          {...props}
+        >
+          {children}
+        </ToggleGroupPrimitive.Item>
+      </PressableLabel>
     </TextClassContext.Provider>
   );
 }

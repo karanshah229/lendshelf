@@ -151,6 +151,11 @@ export interface Loan {
    * when the borrower marks it returned again or the loan closes.
    */
   notBackYetAt?: TimestampLike | null;
+  /**
+   * Every "I've returned it" and "Not back yet", oldest first (the fields above are cleared or
+   * overwritten when it goes back and forth). Absent on older loans.
+   */
+  returnEvents?: { kind: 'returnMarked' | 'notBackYet'; at: TimestampLike }[];
   /** When the owner last moved the due date. */
   dueChangedAt?: TimestampLike | null;
   /** The due date before the first change (timeline: "Accepted (due 12 Dec)"). */

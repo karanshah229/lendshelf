@@ -2,10 +2,14 @@ import { useEffect } from 'react';
 
 import { collection, db, doc, onAuthStateChanged, onSnapshot, query, where } from '@/lib/firebase';
 import { useContactsAutoResync } from '@/features/contacts/use-auto-resync';
+import { registerCircleNames } from '@/hooks/use-links';
 import { useContactsStore } from '@/stores/contacts';
 import { useProfilesStore } from '@/stores/profiles';
 import { selectStatus, useSessionStore } from '@/stores/session';
 import { COLLECTIONS, fromQuerySnap, fromSnap, type Link, type Profile } from '@/types/model';
+
+// Short names are kept unique across my circle (QA Android #4).
+registerCircleNames();
 
 /**
  * Keeps the session store in sync with Firebase: auth state, my profile, my links.

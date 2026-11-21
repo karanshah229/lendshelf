@@ -93,7 +93,12 @@ export function DeleteAccountButton() {
               </AlertDialogDescription>
             </AlertDialogHeader>
             {/* pr-2: the web scrollbar must not cover the text (QA B21). */}
-            <ScrollView style={{ maxHeight: 360 }} contentContainerClassName="gap-4 pr-2">
+            <ScrollView
+              style={{ maxHeight: 360 }}
+              contentContainerClassName="gap-4 pr-2"
+              // Inside the dialog frame's own ScrollView (Android needs this to scroll both).
+              nestedScrollEnabled
+            >
               {check.outWithFriends.length ? (
                 <View className="gap-2">
                   <Text className="text-sm">{outWithFriendsLine(check.outWithFriends.length)}</Text>

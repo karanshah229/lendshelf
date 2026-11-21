@@ -4,7 +4,7 @@
  * Network access goes through an injected `fetch`, and persistence through an
  * injected `BookStore`, so the whole resolution flow is unit-testable.
  */
-import { logger } from "firebase-functions";
+import * as logger from "firebase-functions/logger";
 import { HttpsError } from "./errors.js";
 import { normaliseIsbn } from "./isbn.js";
 import { gbWorkId, olWorkId, type EditionInfo, type IsbnIndexDoc, type WorkData } from "../model.js";

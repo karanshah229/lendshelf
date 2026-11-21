@@ -21,7 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -506,9 +506,9 @@ export function useLoanSheets() {
               </AlertDialogCancel>
               <AlertDialogAction
                 onPress={() => void perform(confirmState.kind, confirmState.loan)}
-                className={cn(c.destructive && buttonVariants({ variant: 'destructive' }))}
+                variant={c.destructive ? 'destructive' : 'default'}
               >
-                <Text className={cn(c.destructive && 'text-white')}>{c.confirm}</Text>
+                <Text>{c.confirm}</Text>
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

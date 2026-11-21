@@ -1,5 +1,5 @@
 import { type DocumentReference, type Firestore, type Query } from "firebase-admin/firestore";
-import { logger } from "firebase-functions";
+import * as logger from "firebase-functions/logger";
 import { z } from "zod";
 import { trackedBulkWriter } from "../lib/bulk.js";
 import { ts, type Caller, type Deps } from "../lib/context.js";

@@ -5,7 +5,7 @@
 import { formatShortDate } from '@/lib/dates';
 import type { DeclineReason, Loan, WithId } from '@/types/model';
 
-import { joinNames, shortName } from '@/features/shared/people';
+import { joinNames, shortName, shortNames } from '@/features/shared/people';
 
 type L = WithId<Loan>;
 
@@ -79,7 +79,7 @@ export function otherRequestsForCopy(loan: Pick<L, 'id' | 'itemId'>, requests: r
  * them when it’s back." Null when nobody else asked.
  */
 export function acceptDeclinesWarning(otherNames: readonly string[]): string | null {
-  const names = [...new Set(otherNames.map(first))];
+  const names = shortNames(otherNames);
   if (!names.length) return null;
   const who =
     names.length === 1
@@ -93,7 +93,7 @@ export function acceptDeclinesWarning(otherNames: readonly string[]): string | n
  * request will be declined." Null without requests.
  */
 export function lendDeclinesWarning(requesterNames: readonly string[]): string | null {
-  const names = [...new Set(requesterNames.map(first))];
+  const names = shortNames(requesterNames);
   if (!names.length) return null;
   return names.length === 1
     ? `${names[0]} asked for this. Their request will be declined.`

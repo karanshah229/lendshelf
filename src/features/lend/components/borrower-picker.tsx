@@ -263,6 +263,8 @@ function ManualBorrower({
         <Pressable
           onPress={onCancel}
           className="size-8 items-center justify-center rounded-full active:bg-accent"
+          // 32 dp circle, 48 dp touch target (F8).
+          hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel="Back to the list"
         >

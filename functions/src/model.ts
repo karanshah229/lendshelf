@@ -171,6 +171,14 @@ export interface ItemDoc<T = Timestamp> {
   updatedAt: T;
 }
 
+export type ReturnEventKind = "returnMarked" | "notBackYet";
+
+/** One entry of `LoanDoc.returnEvents`. */
+export interface ReturnEvent<T = Timestamp> {
+  kind: ReturnEventKind;
+  at: T;
+}
+
 /** `loans/{loanId}` — all writes go through callable functions. */
 export interface LoanDoc<T = Timestamp> {
   itemId: string;
@@ -200,6 +208,12 @@ export interface LoanDoc<T = Timestamp> {
    * marks it returned again or the loan closes. Absent on older loans.
    */
   notBackYetAt?: T | null;
+  /**
+   * Every "I've returned it" (`markReturned`) and "Not back yet" (`markNotReturned`), oldest
+   * first, for the loan timeline: the single fields above are cleared or overwritten when it
+   * goes back and forth. Absent on older loans.
+   */
+  returnEvents?: ReturnEvent<T>[];
   /** Set by `updateDueDate` when the owner last moved the due date. Absent on older loans. */
   dueChangedAt?: T | null;
   /** The due date before the first `updateDueDate` (for the timeline). Absent until then. */
