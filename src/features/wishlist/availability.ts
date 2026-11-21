@@ -30,6 +30,14 @@ export function wishlistAvailability(
   }
   if (summary.othersCount > 0) {
     const best = summary.bestStatus;
+    // Ranking puts the copy I'm borrowing first among lent copies.
+    if (best?.kind === 'lent' && best.withMe) {
+      return {
+        tone: 'lent',
+        text: `With you · borrowed from ${nameOf(summary.ownerIds[0] ?? '')}`,
+        rank: 1,
+      };
+    }
     const detail =
       best?.kind === 'lent'
         ? backLabel(best.dueDate, now) === 'lent out'

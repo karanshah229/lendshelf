@@ -1,4 +1,8 @@
-import { deriveCopyState, type CopyActionItem } from '@/features/copy/copy-actions';
+import {
+  deriveCopyState,
+  openBorrowLoanFor,
+  type CopyActionItem,
+} from '@/features/copy/copy-actions';
 
 const item = (over: Partial<CopyActionItem> = {}): CopyActionItem => ({
   id: 'i1',
@@ -103,5 +107,45 @@ describe('deriveCopyState — viewer', () => {
     });
     expect(s).toMatchObject({ role: 'viewer', canAsk: false, canMessage: false });
     expect(s.status.kind).toBe('notLendable');
+  });
+});
+
+describe('deriveCopyState — borrowed by me', () => {
+  it('shows the copy I have as "with me"', () => {
+    const s = deriveCopyState({
+      ...base,
+      item: item({ loanState: 'lent', activeLoanId: 'L1' }),
+      myBorrowerLoans: [{ id: 'L1', itemId: 'i1', status: 'active' }],
+    });
+    expect(s.status).toEqual({ kind: 'lent', dueDate: null, withMe: true });
+  });
+
+  it('shows a hidden copy to its owner as hidden', () => {
+    const s = deriveCopyState({ ...base, item: item({ ownerId: 'me', visibility: 'hidden' }) });
+    expect(s.status.kind).toBe('hidden');
+  });
+});
+
+describe('openBorrowLoanFor', () => {
+  const loans = [
+    { id: 'L3', itemId: 'i1', status: 'returned' as const },
+    { id: 'L2', itemId: 'i2', status: 'active' as const },
+    { id: 'L1', itemId: 'i1', status: 'returnPending' as const },
+    { id: 'L0', itemId: 'i1', status: 'active' as const },
+  ];
+
+  it('finds my newest open (active / return pending) loan of the copy', () => {
+    expect(openBorrowLoanFor('i1', loans)?.id).toBe('L1');
+    expect(openBorrowLoanFor('i2', loans)?.id).toBe('L2');
+  });
+
+  it('ignores requests and closed loans', () => {
+    expect(
+      openBorrowLoanFor('i9', [
+        { id: 'a', itemId: 'i9', status: 'requested' as const },
+        { id: 'b', itemId: 'i9', status: 'returned' as const },
+      ])
+    ).toBeNull();
+    expect(openBorrowLoanFor(undefined, loans)).toBeNull();
   });
 });

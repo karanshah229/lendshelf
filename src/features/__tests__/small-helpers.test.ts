@@ -191,3 +191,22 @@ describe('wishlistAvailability', () => {
     expect(wishlistAvailability(summary({}), nameOf, now)).toMatchObject({ tone: 'none', rank: 3 });
   });
 });
+
+describe('wishlistAvailability: a copy I am borrowing', () => {
+  it('reads "With you" rather than "lent out"', () => {
+    const due = new Date(2026, 11, 1);
+    const a = wishlistAvailability(
+      {
+        othersCount: 2,
+        availableCount: 0,
+        mineCount: 0,
+        bestStatus: { kind: 'lent', dueDate: due, withMe: true },
+        ownerIds: ['r', 'm'],
+        availableOwnerIds: [],
+      },
+      (id) => ({ r: 'Ravi', m: 'Meera' })[id] ?? 'Someone',
+      new Date(2026, 10, 21)
+    );
+    expect(a).toEqual({ tone: 'lent', text: 'With you · borrowed from Ravi', rank: 1 });
+  });
+});

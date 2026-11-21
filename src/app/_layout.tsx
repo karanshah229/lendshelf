@@ -59,6 +59,9 @@ function RootNavigator() {
   const loading = status === 'loading' || !hydrated;
   const ready = status === 'ready';
   const needsContacts = ready && !onboarded;
+  // Without a target, a screen whose guard fails falls back to the first allowed route in
+  // sorted order, which is (auth)/code: signing out flashed the Code screen before /phone.
+  const signedOutTo = status === 'signedOut' ? '/phone' : undefined;
 
   useEffect(() => {
     if (!loading) void SplashScreen.hideAsync();
@@ -78,13 +81,13 @@ function RootNavigator() {
         <Stack.Screen name="(auth)/phone" />
         <Stack.Screen name="(auth)/code" />
       </Stack.Protected>
-      <Stack.Protected guard={status === 'needsProfile'}>
+      <Stack.Protected guard={status === 'needsProfile'} redirectTo={signedOutTo}>
         <Stack.Screen name="(onboarding)/name" />
       </Stack.Protected>
-      <Stack.Protected guard={ready && !needsContacts}>
+      <Stack.Protected guard={ready && !needsContacts} redirectTo={signedOutTo}>
         <Stack.Screen name="(app)" />
       </Stack.Protected>
-      <Stack.Protected guard={ready}>
+      <Stack.Protected guard={ready} redirectTo={signedOutTo}>
         <Stack.Screen name="contacts" />
       </Stack.Protected>
     </Stack>

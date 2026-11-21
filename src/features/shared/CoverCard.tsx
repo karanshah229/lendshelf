@@ -12,11 +12,14 @@ export function CoverCard({
   item,
   subtitle,
   requestedByMe,
+  borrowedByMe,
   className,
 }: {
   item: WithId<Item>;
   subtitle?: string;
   requestedByMe?: boolean;
+  /** I'm borrowing this copy right now ("With you"). */
+  borrowedByMe?: boolean;
   className?: string;
 }) {
   return (
@@ -38,7 +41,7 @@ export function CoverCard({
         ) : null}
       </View>
       <View className="flex-row">
-        <StatusBadge status={itemStatus(item, { requestedByMe })} compact />
+        <StatusBadge status={itemStatus(item, { requestedByMe, borrowedByMe })} compact />
       </View>
     </Pressable>
   );
@@ -49,10 +52,12 @@ export function CoverGrid({
   items,
   subtitleOf,
   requestedItemIds,
+  borrowedItemIds,
 }: {
   items: WithId<Item>[];
   subtitleOf?: (item: WithId<Item>) => string | undefined;
   requestedItemIds?: ReadonlySet<string>;
+  borrowedItemIds?: ReadonlySet<string>;
 }) {
   return (
     <View className="-mx-1.5 flex-row flex-wrap">
@@ -62,6 +67,7 @@ export function CoverGrid({
             item={item}
             subtitle={subtitleOf?.(item)}
             requestedByMe={requestedItemIds?.has(item.id)}
+            borrowedByMe={borrowedItemIds?.has(item.id)}
           />
         </View>
       ))}

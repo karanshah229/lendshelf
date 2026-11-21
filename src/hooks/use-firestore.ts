@@ -3,7 +3,7 @@
  * refs/queries inline without re-subscribing every render. Results are stored with the key
  * they belong to, so `loading` is derived (true until the current key's first snapshot).
  */
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react';
 
 import { db, doc, onSnapshot, type query } from '@/lib/firebase';
 import { fromQuerySnap, fromSnap, type WithId } from '@/types/model';
@@ -20,6 +20,8 @@ export interface ListResult<T> {
   data: WithId<T>[];
   loading: boolean;
   error: Error | null;
+  /** Subscribes again (a listener stops for good after an error); `loading` until it answers. */
+  retry(): void;
 }
 
 interface Keyed<V> {
@@ -57,6 +59,7 @@ export function useDocData<T>(path: string | null): DocResult<T> {
  */
 export function useQueryData<T>(key: string | null, build: () => FirestoreQuery): ListResult<T> {
   const [state, setState] = useState<Keyed<WithId<T>[]> | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const buildQuery = useEffectEvent(build);
 
   useEffect(() => {
@@ -66,13 +69,19 @@ export function useQueryData<T>(key: string | null, build: () => FirestoreQuery)
       (snap) => setState({ key, value: fromQuerySnap<T>(snap), error: null }),
       (error) => setState({ key, value: [], error })
     );
-  }, [key]);
+  }, [key, attempt]);
+
+  const retry = useCallback(() => {
+    setState(null);
+    setAttempt((a) => a + 1);
+  }, []);
 
   const current = !!key && state?.key === key;
   return {
     data: current ? state.value : EMPTY,
     loading: !!key && !current,
     error: current ? state.error : null,
+    retry,
   };
 }
 
@@ -87,6 +96,7 @@ export function useMergedQueries<T>(
   const [results, setResults] = useState<
     Record<string, { value: WithId<T>[]; error: Error | null }>
   >({});
+  const [attempt, setAttempt] = useState(0);
   const buildQuery = useEffectEvent(build);
   const joined = keys ? [...new Set(keys)].sort().join('|') : null;
 
@@ -101,7 +111,12 @@ export function useMergedQueries<T>(
       )
     );
     return () => unsubs.forEach((u) => u());
-  }, [joined]);
+  }, [joined, attempt]);
+
+  const retry = useCallback(() => {
+    setResults({});
+    setAttempt((a) => a + 1);
+  }, []);
 
   return useMemo(() => {
     const list = joined ? joined.split('|') : [];
@@ -117,6 +132,6 @@ export function useMergedQueries<T>(
       data.push(...r.value);
       if (r.error) errors[key] = r.error;
     }
-    return { data, loading, error: Object.values(errors)[0] ?? null, errors };
-  }, [joined, results]);
+    return { data, loading, error: Object.values(errors)[0] ?? null, errors, retry };
+  }, [joined, results, retry]);
 }

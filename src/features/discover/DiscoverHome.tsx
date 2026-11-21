@@ -65,6 +65,7 @@ export function DiscoverHome({
   items,
   networkItems,
   requestedItemIds,
+  borrowedItemIds,
   nameOf,
 }: {
   uid: string;
@@ -73,6 +74,8 @@ export function DiscoverHome({
   items: WithId<Item>[];
   networkItems: WithId<Item>[];
   requestedItemIds: ReadonlySet<string>;
+  /** Copies I'm borrowing right now ("With you"). */
+  borrowedItemIds: ReadonlySet<string>;
   nameOf(uid: string): string;
 }) {
   const counts = useMemo(() => countByOwner(networkItems), [networkItems]);
@@ -111,6 +114,7 @@ export function DiscoverHome({
                 item={item}
                 subtitle={nameOf(item.ownerId)}
                 requestedByMe={requestedItemIds.has(item.id)}
+                borrowedByMe={borrowedItemIds.has(item.id)}
                 className="w-28"
               />
             ))}
@@ -127,7 +131,11 @@ export function DiscoverHome({
           <View className="gap-1">
             {popular.map((p) => {
               const summary = summarizeCircleCopies(
-                circleCopiesForWork(p.workId, p.copies, { uid, requestedItemIds })
+                circleCopiesForWork(p.workId, p.copies, {
+                  uid,
+                  requestedItemIds,
+                  borrowedItemIds,
+                })
               );
               return (
                 <BookRow

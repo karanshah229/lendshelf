@@ -48,6 +48,22 @@ export interface ViewerCopyState {
 
 export type CopyState = OwnerCopyState | ViewerCopyState;
 
+/**
+ * My open loan (active or return pending) of `itemId`, for when the copy itself can't be read
+ * (hidden, private collection, owner not saved, removed). Loans are expected newest first.
+ */
+export function openBorrowLoanFor<T extends Pick<Loan, 'itemId' | 'status'>>(
+  itemId: string | null | undefined,
+  myBorrowerLoans: readonly T[]
+): T | null {
+  if (!itemId) return null;
+  return (
+    myBorrowerLoans.find(
+      (l) => l.itemId === itemId && (l.status === 'active' || l.status === 'returnPending')
+    ) ?? null
+  );
+}
+
 export function deriveCopyState({
   item,
   uid,
@@ -71,7 +87,7 @@ export function deriveCopyState({
   const myRequest = forItem.find((l) => l.status === 'requested') ?? null;
   const myBorrow =
     forItem.find((l) => l.status === 'active' || l.status === 'returnPending') ?? null;
-  const status = itemStatus(item, { requestedByMe: !!myRequest });
+  const status = itemStatus(item, { requestedByMe: !!myRequest, borrowedByMe: !!myBorrow });
   const lent = item.loanState === 'lent';
 
   let askBlockedReason: string | null = null;

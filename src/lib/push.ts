@@ -3,8 +3,9 @@
  *
  * - Asked for after onboarding (the signed-in app layout mounts `usePushRegistration()`),
  *   never on first launch.
- * - The Expo push token is added to `users/{uid}.pushTokens` with arrayUnion (the rules let the
- *   client change only that field) and removed again on sign-out.
+ * - The Expo push token is registered with the `registerPushToken` callable (which also removes
+ *   it from any other account on this device, DECISIONS #26) and removed again on sign-out with
+ *   `unregisterPushToken`.
  * - Needs `extra.eas.projectId` in the app config (set by `eas init`). Without it, registration
  *   is skipped with a warning: everything else keeps working.
  */
@@ -13,8 +14,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Linking, Platform } from 'react-native';
 
-import { arrayRemove, arrayUnion, db, doc, updateDoc } from '@/lib/firebase';
-import { COLLECTIONS } from '@/types/model';
+import { api } from '@/lib/api';
 
 export const PUSH_SUPPORTED = true;
 
@@ -69,8 +69,8 @@ export async function getPushPermission(): Promise<PushPermission> {
 }
 
 /**
- * Asks for permission (if it can still be asked), gets the Expo push token and stores it on
- * `users/{uid}`. Safe to call on every app start. Returns the resulting permission.
+ * Asks for permission (if it can still be asked), gets the Expo push token and registers it for
+ * `uid` (`registerPushToken`). Safe to call on every app start. Returns the resulting permission.
  * Never throws: failures are logged, the app works without push.
  */
 export async function registerForPush(
@@ -101,7 +101,7 @@ export async function registerForPush(
 
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
     if (registered?.uid === uid && registered.token === token) return 'granted';
-    await updateDoc(doc(db, COLLECTIONS.users, uid), { pushTokens: arrayUnion(token) });
+    await api.registerPushToken({ token });
     registered = { uid, token };
     return 'granted';
   } catch (e) {
@@ -116,7 +116,7 @@ export async function unregisterPush(uid: string): Promise<void> {
   if (!current || current.uid !== uid) return;
   registered = null;
   try {
-    await updateDoc(doc(db, COLLECTIONS.users, uid), { pushTokens: arrayRemove(current.token) });
+    await api.unregisterPushToken({ token: current.token });
   } catch (e) {
     console.warn('[push] Could not remove the push token', e);
   }

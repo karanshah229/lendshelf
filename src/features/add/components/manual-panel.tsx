@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Text } from '@/components/ui/text';
 import { formatIsbn, normaliseIsbn } from '@/features/add/isbn';
-import { parseAuthors } from '@/features/add/save';
+import { coverContentType, parseAuthors, UNSUPPORTED_COVER_MESSAGE } from '@/features/add/save';
 import type { AddCandidate } from '@/features/add/types';
 import { toast, toastError } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -75,7 +75,12 @@ export function ManualPanel({
         toast.error('That photo is too large. Pick one under 5 MB.');
         return;
       }
-      setPhoto({ uri: asset.uri, mimeType: asset.mimeType ?? null });
+      const mimeType = coverContentType(asset.mimeType, asset.uri);
+      if (!mimeType) {
+        toast.error(UNSUPPORTED_COVER_MESSAGE);
+        return;
+      }
+      setPhoto({ uri: asset.uri, mimeType });
     } catch (e) {
       toastError(e, 'Couldn’t open the photo picker.');
     }

@@ -22,7 +22,7 @@ import { searchCopies } from '@/lib/search';
 
 import { groupItemsByShelf } from '@/features/person/group-by-shelf';
 import { CoverGrid } from '@/features/shared/CoverCard';
-import { useRequestedItemIds } from '@/features/shared/hooks';
+import { useBorrowedItemIds, useRequestedItemIds } from '@/features/shared/hooks';
 import { PersonAvatar, SectionHeader } from '@/features/shared/ui';
 import { openWhatsApp } from '@/features/shared/whatsapp-open';
 
@@ -40,6 +40,7 @@ export default function PersonScreen() {
   const { shelves, loading: shelvesLoading } = usePublicShelves(canSee ? personId : null);
   const { items, loading: itemsLoading } = useOwnerItems(canSee ? personId : null);
   const requestedItemIds = useRequestedItemIds();
+  const borrowedItemIds = useBorrowedItemIds();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
 
@@ -216,7 +217,11 @@ export default function PersonScreen() {
                     title={g.name ?? 'Other books'}
                     action={<Text className="text-xs text-muted-foreground">{g.items.length}</Text>}
                   />
-                  <CoverGrid items={g.items} requestedItemIds={requestedItemIds} />
+                  <CoverGrid
+                    items={g.items}
+                    requestedItemIds={requestedItemIds}
+                    borrowedItemIds={borrowedItemIds}
+                  />
                 </View>
               ))
             ) : (

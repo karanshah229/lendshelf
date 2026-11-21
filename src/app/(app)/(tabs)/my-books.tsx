@@ -3,7 +3,7 @@ import { FolderCog, Plus, SearchX } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { FlatList, useWindowDimensions, View } from 'react-native';
 
-import { EmptyState } from '@/components/empty-state';
+import { EmptyState, LoadErrorState } from '@/components/empty-state';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,7 @@ import { useMyShelves } from '@/hooks/use-shelves';
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export default function MyBooksScreen() {
-  const { items, loading: itemsLoading } = useMyItems();
+  const { items, loading: itemsLoading, error: itemsError, retry: retryItems } = useMyItems();
   const { shelves, loading: shelvesLoading } = useMyShelves();
   const { width } = useWindowDimensions();
 
@@ -51,7 +51,7 @@ export default function MyBooksScreen() {
 
   const loading = itemsLoading || shelvesLoading;
   const columns = width >= 1000 ? 7 : width >= 720 ? 5 : width >= 520 ? 4 : 3;
-  const isEmptyLibrary = !loading && items.length === 0;
+  const isEmptyLibrary = !loading && !itemsError && items.length === 0;
 
   const addBook = () =>
     router.push({
@@ -59,8 +59,9 @@ export default function MyBooksScreen() {
       params: shelfId === ALL_SHELVES ? {} : { shelfId },
     });
 
-  const subtitle = loading
-    ? undefined
+  const subtitle =
+    loading || itemsError
+      ? undefined
     : `${plural(items.length, 'book', 'books')} · ${plural(shelves.length, 'collection', 'collections')}`;
 
   return (
@@ -98,6 +99,8 @@ export default function MyBooksScreen() {
     >
       {loading ? (
         <LibrarySkeleton columns={columns} />
+      ) : itemsError ? (
+        <LoadErrorState title="Couldn’t load your books" onRetry={retryItems} />
       ) : isEmptyLibrary ? (
         <LibraryWelcome />
       ) : (

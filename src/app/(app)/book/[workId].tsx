@@ -23,7 +23,12 @@ import { cleanDescription } from '@/features/book/description';
 import { AskDialog, type AskTarget } from '@/features/copy/AskDialog';
 import { ReviewList, useRefreshReviewsOnFocus } from '@/features/reviews/ReviewList';
 import { Stars } from '@/features/reviews/Stars';
-import { useCircleItems, useNameOf, useRequestedItemIds } from '@/features/shared/hooks';
+import {
+  useBorrowedItemIds,
+  useCircleItems,
+  useNameOf,
+  useRequestedItemIds,
+} from '@/features/shared/hooks';
 import { setWishlisted } from '@/features/shared/mutations';
 import { BookHeaderSkeleton, BookRowSkeletons, SectionHeader } from '@/features/shared/ui';
 
@@ -68,13 +73,20 @@ export default function BookScreen() {
   const { isWishlisted } = useWatches();
   const { items, loading: copiesLoading } = useCircleItems();
   const requestedItemIds = useRequestedItemIds();
+  const borrowedItemIds = useBorrowedItemIds();
   const nameOf = useNameOf();
   const [askTarget, setAskTarget] = useState<AskTarget | null>(null);
   const [savingWish, setSavingWish] = useState(false);
 
   const { mine, others } = useMemo(
-    () => circleCopiesForWork(workId ?? '', items, { uid, requestedItemIds, nameOf }),
-    [workId, items, uid, requestedItemIds, nameOf]
+    () =>
+      circleCopiesForWork(workId ?? '', items, {
+        uid,
+        requestedItemIds,
+        borrowedItemIds,
+        nameOf,
+      }),
+    [workId, items, uid, requestedItemIds, borrowedItemIds, nameOf]
   );
   const wishlisted = !!workId && isWishlisted(workId);
   const description = useMemo(() => cleanDescription(work?.description), [work?.description]);

@@ -15,11 +15,20 @@ export function useCircleItems() {
       seen.has(i.id) ? false : (seen.add(i.id), true)
     );
   }, [mine.items, network.items]);
+  const { error: mineError, retry: retryMine } = mine;
+  const { error: networkError, retry: retryNetwork } = network;
+  const retry = useCallback(() => {
+    if (mineError) retryMine();
+    if (networkError) retryNetwork();
+  }, [mineError, networkError, retryMine, retryNetwork]);
   return {
     items,
     myItems: mine.items,
     networkItems: network.items,
     loading: mine.loading || network.loading,
+    /** First listener error (mine or a contact's), if any. */
+    error: mineError ?? networkError,
+    retry,
   };
 }
 
@@ -28,6 +37,20 @@ export function useRequestedItemIds(): ReadonlySet<string> {
   const { asBorrower } = useMyLoans();
   return useMemo(
     () => new Set(asBorrower.filter((l) => l.status === 'requested').map((l) => l.itemId)),
+    [asBorrower]
+  );
+}
+
+/** Item ids I'm borrowing right now (active or return pending). */
+export function useBorrowedItemIds(): ReadonlySet<string> {
+  const { asBorrower } = useMyLoans();
+  return useMemo(
+    () =>
+      new Set(
+        asBorrower
+          .filter((l) => l.status === 'active' || l.status === 'returnPending')
+          .map((l) => l.itemId)
+      ),
     [asBorrower]
   );
 }

@@ -86,3 +86,20 @@ describe('searchCopies', () => {
     ]);
   });
 });
+
+describe('malformed documents', () => {
+  it('ignores non-string titles and authors instead of crashing', () => {
+    expect(normaliseText(undefined)).toBe('');
+    expect(normaliseText(42)).toBe('');
+    const bad = [
+      ...copies,
+      // Data that slipped past the model (e.g. written before a rule existed).
+      { id: 'x1', workId: 'wx', title: 7, authors: [null, 'Frank Herbert', 3], ownerId: 'z' },
+      { id: 'x2', workId: 'wy', title: 'Dune Notes', authors: 'Frank Herbert', ownerId: 'z' },
+    ] as unknown as Copy[];
+    expect(() => searchCopies(bad, 'herbert')).not.toThrow();
+    expect(() => searchCopies(bad, '')).not.toThrow();
+    expect(searchCopies(bad, 'herbert').map((g) => g.workId)).toContain('wx');
+    expect(scoreWork('Dune Notes', 'Frank Herbert' as unknown as string[], 'dune')).toBeGreaterThan(0);
+  });
+});

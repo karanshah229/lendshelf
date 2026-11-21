@@ -7,7 +7,11 @@ import { useSessionStore } from '@/stores/session';
 const withTimeout = <T>(p: Promise<T>, ms: number) =>
   Promise.race([p, new Promise<void>((resolve) => setTimeout(resolve, ms))]);
 
-/** Removes this device's push token (best effort, while still signed in), then signs out. */
+/**
+ * Removes this device's push token with `unregisterPushToken` (best effort, while still signed
+ * in, at most 4 s so a slow network can't block sign-out), then signs out.
+ * Firestore's offline cache is not cleared here: see DECISIONS #29.
+ */
 export async function signOutAndCleanUp(): Promise<void> {
   const uid = useSessionStore.getState().user?.uid;
   if (uid) await withTimeout(unregisterPush(uid), 4000);

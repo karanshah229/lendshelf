@@ -23,6 +23,9 @@ export function useMyLoans() {
     query(collection(db, COLLECTIONS.loans), where('borrowerUid', '==', uid))
   );
 
+  const { retry: retryOwner } = owner;
+  const { retry: retryBorrower } = borrower;
+
   return useMemo(() => {
     const asOwner = [...owner.data].sort(recentFirst);
     const asBorrower = [...borrower.data].sort(recentFirst);
@@ -37,8 +40,22 @@ export function useMyLoans() {
       borrowed: asBorrower.filter(isOpen),
       loading: owner.loading || borrower.loading,
       error: owner.error ?? borrower.error,
+      /** Re-subscribes the failed listener(s). */
+      retry: () => {
+        if (owner.error) retryOwner();
+        if (borrower.error) retryBorrower();
+      },
     };
-  }, [owner.data, owner.loading, owner.error, borrower.data, borrower.loading, borrower.error]);
+  }, [
+    owner.data,
+    owner.loading,
+    owner.error,
+    retryOwner,
+    borrower.data,
+    borrower.loading,
+    borrower.error,
+    retryBorrower,
+  ]);
 }
 
 /** One loan (owner or borrower only). */

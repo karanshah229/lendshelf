@@ -96,3 +96,22 @@ describe('circleCopiesForWork + summarizeCircleCopies', () => {
     expect(s.mineCount).toBe(1);
   });
 });
+
+describe('rankCircleCopies: borrowed by me', () => {
+  it('marks the copy I have as "with me" and ranks it first among lent copies', () => {
+    const { others } = rankCircleCopies(
+      [
+        copy('lentSoon', { ownerId: 'e', loanState: 'lent', dueDate: ts('2026-12-01') }),
+        copy('mineNow', { ownerId: 'r', loanState: 'lent', dueDate: ts('2026-12-20') }),
+        copy('notLendable', { ownerId: 'b', visibility: 'visible' }),
+      ],
+      { uid: 'me', borrowedItemIds: new Set(['mineNow']) }
+    );
+    expect(others.map((c) => c.item.id)).toEqual(['mineNow', 'lentSoon', 'notLendable']);
+    expect(others[0]!.status).toMatchObject({ kind: 'lent', withMe: true });
+    expect(others[1]!.status).not.toHaveProperty('withMe');
+    expect(summarizeCircleCopies({ mine: [], others }).bestStatus).toMatchObject({
+      withMe: true,
+    });
+  });
+});

@@ -356,7 +356,8 @@ export function LentCard({
         <>
           {pending ? null : (
             <ActionButton
-              label={onNudge ? 'Nudge on WhatsApp' : 'No phone number'}
+              // Short so it fits next to "Mark returned" at 375 px.
+              label={onNudge ? 'Nudge' : 'No phone number'}
               icon={Send}
               onPress={onNudge}
               disabled={!onNudge}

@@ -9,7 +9,7 @@ import { Contact, ContactField, getPermissionsAsync, requestPermissionsAsync } f
 import { getLocales } from 'expo-localization';
 import { Platform } from 'react-native';
 
-import { normalisePhone, toCountryCode, type CountryCode } from '@/lib/phone';
+import { normalisePhoneLenient, toCountryCode, type CountryCode } from '@/lib/phone';
 
 export interface DeviceContact {
   name: string;
@@ -73,7 +73,8 @@ export async function readDeviceContacts(
   for (const c of all) {
     const name = c.fullName?.trim() ?? '';
     for (const p of c.phones ?? []) {
-      const e164 = p.number ? normalisePhone(p.number, region) : null;
+      // Device region first, then India (most users; a foreign SIM shouldn't hide +91 contacts).
+      const e164 = p.number ? normalisePhoneLenient(p.number, region) : null;
       if (e164 && !byPhone.has(e164)) byPhone.set(e164, { name: name || e164, phone: e164 });
     }
   }

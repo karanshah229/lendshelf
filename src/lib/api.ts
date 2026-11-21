@@ -111,6 +111,13 @@ export interface UpdateDueDateRequest {
   dueDate: string;
 }
 
+// ---------- Push ----------
+
+export interface PushTokenRequest {
+  /** Expo push token of this device. */
+  token: string;
+}
+
 export interface DeleteAccountResponse {
   ok: boolean;
   /** Counts of deleted documents per collection. */
@@ -138,6 +145,8 @@ export const api = {
   markReturned: callable<LoanIdRequest, OkResponse>('markReturned'),
   confirmReturn: callable<LoanIdRequest, OkResponse>('confirmReturn'),
   updateDueDate: callable<UpdateDueDateRequest, OkResponse>('updateDueDate'),
+  registerPushToken: callable<PushTokenRequest, OkResponse>('registerPushToken'),
+  unregisterPushToken: callable<PushTokenRequest, OkResponse>('unregisterPushToken'),
   deleteAccount: callable<Record<string, never>, DeleteAccountResponse>('deleteAccount'),
 } as const;
 

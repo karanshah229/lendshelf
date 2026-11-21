@@ -16,7 +16,7 @@ export function useMyItems() {
     query(collection(db, COLLECTIONS.items), where('ownerId', '==', uid))
   );
   const items = useMemo(() => [...res.data].sort(newestFirst), [res.data]);
-  return { items, loading: res.loading, error: res.error };
+  return { items, loading: res.loading, error: res.error, retry: res.retry };
 }
 
 /**
@@ -34,7 +34,7 @@ export function useNetworkItems() {
     )
   );
   const items = useMemo(() => [...res.data].sort(newestFirst), [res.data]);
-  return { items, loading: linksLoading || res.loading, error: res.error };
+  return { items, loading: linksLoading || res.loading, error: res.error, retry: res.retry };
 }
 
 /** Shared copies of one contact. */

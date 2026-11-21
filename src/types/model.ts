@@ -204,18 +204,33 @@ export interface SnapLike {
   data(): unknown;
 }
 
+/** `value` as a list of strings: non-arrays become `[]`, non-string entries are dropped. */
+export function toStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+/**
+ * Defensive clean-up of fields the UI relies on. Rules validate writes, but documents written
+ * before a rule existed (or by hand) may not match: `authors` (items, works) must be `string[]`.
+ */
+function sanitiseDoc(data: unknown): Record<string, unknown> {
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  return 'authors' in d ? { ...d, authors: toStringList(d.authors) } : d;
+}
+
 /**
  * Converts a document snapshot into `WithId<T>`, or `null` if it doesn't exist.
- * Firestore data is trusted to match the model (rules validate writes).
+ * Firestore data is trusted to match the model (rules validate writes), apart from the
+ * defensive `authors` coercion in `sanitiseDoc`.
  */
 export function fromSnap<T>(snap: SnapLike): WithId<T> | null {
   if (!snap.exists()) return null;
-  return { ...(snap.data() as T), id: snap.id };
+  return { ...(sanitiseDoc(snap.data()) as T), id: snap.id };
 }
 
 /** Converts every document of a query snapshot. */
 export function fromQuerySnap<T>(snap: { docs: readonly SnapLike[] }): WithId<T>[] {
-  return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+  return snap.docs.map((d) => ({ ...(sanitiseDoc(d.data()) as T), id: d.id }));
 }
 
 /** Whether a copy is shown to contacts given its shelf (mirrors the rules). */
@@ -278,16 +293,23 @@ export function buildNewItem<TS>(
 /** Display status of a copy as seen by anyone. */
 export type ItemStatus =
   | { kind: 'available' }
-  | { kind: 'lent'; dueDate: Date | null }
+  /** `withMe`: I'm the borrower ("With you" rather than "Lent out"). */
+  | { kind: 'lent'; dueDate: Date | null; withMe?: boolean }
   | { kind: 'requested' }
-  | { kind: 'notLendable' };
+  | { kind: 'notLendable' }
+  /** Only the owner ever sees a hidden copy. */
+  | { kind: 'hidden' };
 
 export function itemStatus(
   item: Pick<Item, 'loanState' | 'dueDate' | 'visibility'>,
-  opts: { requestedByMe?: boolean } = {}
+  opts: { requestedByMe?: boolean; borrowedByMe?: boolean } = {}
 ): ItemStatus {
-  if (item.loanState === 'lent') return { kind: 'lent', dueDate: item.dueDate?.toDate() ?? null };
+  if (item.loanState === 'lent') {
+    const dueDate = item.dueDate?.toDate() ?? null;
+    return opts.borrowedByMe ? { kind: 'lent', dueDate, withMe: true } : { kind: 'lent', dueDate };
+  }
   if (opts.requestedByMe) return { kind: 'requested' };
+  if (item.visibility === 'hidden') return { kind: 'hidden' };
   if (item.visibility !== 'lendable') return { kind: 'notLendable' };
   return { kind: 'available' };
 }

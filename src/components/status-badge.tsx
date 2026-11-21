@@ -12,7 +12,8 @@ export interface StatusBadgeProps {
 
 /**
  * Copy status as contacts see it: "Available", "Lent · back 12 Dec" (or "overdue 3 days"),
- * "Requested", "Not lendable". Build the status with `itemStatus(item)` from `@/types/model`.
+ * "With you · back 12 Dec" (I'm the borrower), "Requested", "Not lendable", and "Hidden"
+ * (owner only). Build the status with `itemStatus(item)` from `@/types/model`.
  */
 export function StatusBadge({ status, compact, className }: StatusBadgeProps) {
   switch (status.kind) {
@@ -34,12 +35,20 @@ export function StatusBadge({ status, compact, className }: StatusBadgeProps) {
           <Text>Not lendable</Text>
         </Badge>
       );
+    case 'hidden':
+      return (
+        <Badge variant="outline" className={className}>
+          <Text>Hidden</Text>
+        </Badge>
+      );
     case 'lent': {
       const overdue = isOverdue(status.dueDate);
+      const short = status.withMe ? 'With you' : 'Lent out';
+      const long = status.withMe ? 'With you' : 'Lent';
       return (
         <Badge variant={overdue ? 'destructive' : 'secondary'} className={className}>
           <Text>
-            {compact || !status.dueDate ? 'Lent out' : `Lent · ${backLabel(status.dueDate)}`}
+            {compact || !status.dueDate ? short : `${long} · ${backLabel(status.dueDate)}`}
           </Text>
         </Badge>
       );

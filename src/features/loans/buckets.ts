@@ -110,16 +110,20 @@ export function requestDaysLeft(
 }
 
 /**
- * Whether tapping the loan can open the copy page: always for my own copies; for a borrowed
- * copy only while I still have the owner saved (otherwise rules hide the copy).
+ * Whether tapping the loan can open the copy page: always for my own copies and for a copy I
+ * have right now (the page falls back to the loan's details if rules hide the copy); for other
+ * borrowed copies only while I still have the owner saved.
  */
 export function canOpenCopy(
-  loan: Pick<Loan, 'ownerId' | 'itemId'>,
+  loan: Pick<Loan, 'ownerId' | 'itemId'> & Partial<Pick<Loan, 'borrowerUid' | 'status'>>,
   uid: string,
   linkedOwnerIds: ReadonlySet<string>
 ): boolean {
   if (!loan.itemId) return false;
-  return loan.ownerId === uid || linkedOwnerIds.has(loan.ownerId);
+  // A book I have right now: the copy page falls back to the loan if the copy isn't readable.
+  const borrowingNow =
+    loan.borrowerUid === uid && (loan.status === 'active' || loan.status === 'returnPending');
+  return loan.ownerId === uid || linkedOwnerIds.has(loan.ownerId) || borrowingNow;
 }
 
 /** Short history line, e.g. "Returned", "Declined", "Expired". */

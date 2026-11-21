@@ -2,9 +2,12 @@ import { routeForNotification } from '@/lib/notification-routes';
 import {
   buildNewItem,
   defaultShelfId,
+  fromQuerySnap,
+  fromSnap,
   isSharedWithContacts,
   itemStatus,
   reviewId,
+  toStringList,
   watchId,
 } from '@/types/model';
 
@@ -119,5 +122,48 @@ describe('routeForNotification', () => {
     });
     expect(routeForNotification(null)).toBeNull();
     expect(routeForNotification({ type: 'x' })).toBeNull();
+  });
+});
+
+describe('defensive document reads', () => {
+  const snap = (id: string, data: unknown) => ({ id, exists: () => true, data: () => data });
+
+  it('toStringList keeps only strings', () => {
+    expect(toStringList(['a', 1, null, 'b', { x: 1 }, undefined])).toEqual(['a', 'b']);
+    expect(toStringList('Jane Austen')).toEqual([]);
+    expect(toStringList(undefined)).toEqual([]);
+  });
+
+  it('fromSnap / fromQuerySnap coerce authors (items, works) to string[]', () => {
+    const item = fromSnap<{ title: string; authors: string[] }>(
+      snap('i1', { title: 'Dune', authors: ['Frank Herbert', 42, null] })
+    );
+    expect(item).toEqual({ id: 'i1', title: 'Dune', authors: ['Frank Herbert'] });
+    const works = fromQuerySnap<{ authors: string[] }>({
+      docs: [snap('w1', { authors: 'Frank Herbert' }), snap('w2', { authors: null })],
+    });
+    expect(works.map((w) => w.authors)).toEqual([[], []]);
+  });
+
+  it('leaves documents without authors untouched', () => {
+    expect(fromSnap(snap('p1', { name: 'Asha' }))).toEqual({ id: 'p1', name: 'Asha' });
+    expect(fromSnap({ id: 'x', exists: () => false, data: () => undefined })).toBeNull();
+  });
+});
+
+describe('itemStatus: hidden and borrowed by me', () => {
+  const due = new Date(2026, 11, 12);
+  const ts = { seconds: 0, nanoseconds: 0, toDate: () => due, toMillis: () => due.getTime() };
+
+  it('a hidden copy reads as hidden (owner only), not "not lendable"', () => {
+    expect(itemStatus({ loanState: 'available', dueDate: null, visibility: 'hidden' })).toEqual({
+      kind: 'hidden',
+    });
+  });
+
+  it('a copy I am borrowing is lent "with me"', () => {
+    expect(
+      itemStatus({ loanState: 'lent', dueDate: ts, visibility: 'lendable' }, { borrowedByMe: true })
+    ).toEqual({ kind: 'lent', dueDate: due, withMe: true });
   });
 });

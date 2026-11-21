@@ -144,6 +144,16 @@ describe('canOpenCopy', () => {
     expect(canOpenCopy({ ownerId: 'zoya', itemId: 'i3' }, 'me', linked)).toBe(false);
     expect(canOpenCopy({ ownerId: 'me', itemId: '' }, 'me', linked)).toBe(false);
   });
+
+  it('allows a copy I have right now even if I do not have the owner saved', () => {
+    const linked = new Set<string>();
+    const loan = { ownerId: 'zoya', itemId: 'i3', borrowerUid: 'me' };
+    expect(canOpenCopy({ ...loan, status: 'active' }, 'me', linked)).toBe(true);
+    expect(canOpenCopy({ ...loan, status: 'returnPending' }, 'me', linked)).toBe(true);
+    expect(canOpenCopy({ ...loan, status: 'returned' }, 'me', linked)).toBe(false);
+    expect(canOpenCopy({ ...loan, status: 'requested' }, 'me', linked)).toBe(false);
+    expect(canOpenCopy({ ...loan, status: 'active', borrowerUid: 'x' }, 'me', linked)).toBe(false);
+  });
 });
 
 describe('closedStatusLabel', () => {

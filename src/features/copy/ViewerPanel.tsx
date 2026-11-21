@@ -11,11 +11,13 @@ import {
   Clock,
   HandHelping,
   MessageCircle,
+  PackageCheck,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
 import { View } from 'react-native';
 
+import { BookCover } from '@/components/book-cover';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
@@ -25,16 +27,19 @@ import { useLoan } from '@/hooks/use-loans';
 import { api } from '@/lib/api';
 import { backLabel, dueLabel } from '@/lib/dates';
 import { toast, toastError } from '@/lib/toast';
-import { aboutBookMessage } from '@/lib/whatsapp';
+import { aboutBookMessage, returnMessage } from '@/lib/whatsapp';
 import { cn } from '@/lib/utils';
-import type { Item, WithId } from '@/types/model';
+import type { Item, Loan, WithId } from '@/types/model';
 
 import { AskDialog, type AskTarget } from '@/features/copy/AskDialog';
 import type { ViewerCopyState } from '@/features/copy/copy-actions';
+import { ConfirmButton } from '@/features/loans/confirm-button';
 import { setWatchingBack } from '@/features/shared/mutations';
 import { capitalize } from '@/features/shared/people';
 import { ListRow, PersonAvatar, SectionHeader } from '@/features/shared/ui';
 import { openWhatsApp } from '@/features/shared/whatsapp-open';
+
+const firstName = (name: string) => name.trim().split(/\s+/)[0] || name.trim();
 
 function StatusHero({
   icon,
@@ -232,6 +237,89 @@ export function ViewerPanel({
       </View>
 
       <AskDialog target={askTarget} onOpenChange={(open) => !open && setAskTarget(null)} />
+    </View>
+  );
+}
+
+/**
+ * Copy page for a book I have right now when the copy itself can't be read (the owner hid it,
+ * moved it to a private collection, I don't have them saved, or it was removed). Built from the
+ * loan's denormalised title/cover/owner name, with the borrower actions.
+ */
+export function BorrowedLoanFallback({
+  loan,
+  ownerName,
+  ownerPhone,
+}: {
+  loan: WithId<Loan>;
+  ownerName: string;
+  ownerPhone: string | null;
+}) {
+  const [busy, setBusy] = useState(false);
+  const pending = loan.status === 'returnPending';
+
+  const markReturned = async () => {
+    setBusy(true);
+    try {
+      await api.markReturned({ loanId: loan.id });
+      toast.success(`Thanks! ${firstName(ownerName)} will confirm`);
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const message = () =>
+    ownerPhone && openWhatsApp(ownerPhone, returnMessage({ ownerName, title: loan.title }));
+
+  return (
+    <View className="w-full max-w-2xl gap-6 self-center">
+      <View className="flex-row gap-4">
+        <BookCover uri={loan.coverUrl} title={loan.title} size="md" />
+        <View className="flex-1 justify-center gap-1.5">
+          <Text className="text-xl font-bold leading-6 tracking-tight" numberOfLines={3}>
+            {loan.title}
+          </Text>
+          <Text className="text-sm text-muted-foreground">Borrowed from {ownerName}</Text>
+        </View>
+      </View>
+
+      <Card className="gap-4 px-4 py-4">
+        <StatusHero
+          icon={HandHelping}
+          tone="info"
+          title="You have this copy"
+          detail={
+            pending
+              ? `Waiting for ${ownerName} to confirm the return`
+              : loan.dueDate
+                ? capitalize(dueLabel(loan.dueDate))
+                : null
+          }
+        />
+        <View className="gap-2">
+          {pending ? null : (
+            <ConfirmButton
+              label="I’ve returned it"
+              icon={PackageCheck}
+              variant="default"
+              size="lg"
+              busy={busy}
+              title="Returned it?"
+              description={`${ownerName} will be asked to confirm they have “${loan.title}” back.`}
+              confirmLabel="Yes, I’ve returned it"
+              onConfirm={() => void markReturned()}
+            />
+          )}
+          {ownerPhone ? (
+            <Button variant="outline" onPress={message}>
+              <Icon as={MessageCircle} size={16} />
+              <Text>Message {firstName(ownerName)}</Text>
+            </Button>
+          ) : null}
+        </View>
+      </Card>
     </View>
   );
 }

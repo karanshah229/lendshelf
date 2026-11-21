@@ -21,11 +21,11 @@ import { useVisibleReviews } from '@/hooks/use-reviews';
 import { useWatches } from '@/hooks/use-watches';
 import type { Item, WithId } from '@/types/model';
 
-import { deriveCopyState } from '@/features/copy/copy-actions';
+import { deriveCopyState, openBorrowLoanFor } from '@/features/copy/copy-actions';
 import { formatLabel, languageName } from '@/features/copy/edition';
 import { EditEditionDialog } from '@/features/copy/EditEditionDialog';
 import { DeleteCopySection, OwnerPanel } from '@/features/copy/OwnerPanel';
-import { ViewerPanel } from '@/features/copy/ViewerPanel';
+import { BorrowedLoanFallback, ViewerPanel } from '@/features/copy/ViewerPanel';
 import { ReviewList, useRefreshReviewsOnFocus } from '@/features/reviews/ReviewList';
 import { Stars } from '@/features/reviews/Stars';
 import { useNameOf } from '@/features/shared/hooks';
@@ -71,8 +71,14 @@ function EditionCard({ item, editable }: { item: WithId<Item>; editable: boolean
 export default function CopyScreen() {
   const { itemId } = useLocalSearchParams<{ itemId: string }>();
   const uid = useUid();
-  const { item, loading } = useItem(itemId);
-  const { asBorrower } = useMyLoans();
+  const { item, loading: itemLoading } = useItem(itemId);
+  const { asBorrower, loading: loansLoading } = useMyLoans();
+  // Not readable or gone, but I have it: show it from the loan (DECISIONS #30).
+  const fallbackLoan = useMemo(
+    () => (item ? null : openBorrowLoanFor(itemId, asBorrower)),
+    [item, itemId, asBorrower]
+  );
+  const loading = itemLoading || (!item && loansLoading);
   const { isWatchingBack } = useWatches();
   const linkMap = useLinkMap();
   const nameOf = useNameOf();
@@ -94,7 +100,13 @@ export default function CopyScreen() {
     [item, uid, asBorrower, isWatchingBack, ownerPhone]
   );
   const isMine = state?.role === 'owner';
-  const ownerName = item ? (isMine ? 'You' : nameOf(item.ownerId)) : '';
+  const ownerName = item
+    ? isMine
+      ? 'You'
+      : nameOf(item.ownerId)
+    : fallbackLoan
+      ? (linkMap.get(fallbackLoan.ownerId)?.displayName ?? fallbackLoan.ownerName)
+      : '';
 
   return (
     <Screen
@@ -104,6 +116,14 @@ export default function CopyScreen() {
     >
       {loading ? (
         <BookHeaderSkeleton />
+      ) : !item && fallbackLoan ? (
+        <BorrowedLoanFallback
+          loan={fallbackLoan}
+          ownerName={ownerName}
+          ownerPhone={
+            linkMap.get(fallbackLoan.ownerId)?.ownerPhone ?? (fallbackLoan.ownerPhone || null)
+          }
+        />
       ) : !item || !state ? (
         <EmptyState
           icon={BookCopy}

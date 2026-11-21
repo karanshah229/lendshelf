@@ -11,7 +11,7 @@ import {
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { EmptyState } from '@/components/empty-state';
+import { EmptyState, LoadErrorState } from '@/components/empty-state';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
 import { Button } from '@/components/ui/button';
@@ -71,7 +71,7 @@ export default function LoansScreen() {
   // Not useUid(): this tab can render once more while signing out.
   const uid = useSessionStore((s) => s.user?.uid) ?? '';
   const params = useLocalSearchParams<{ segment?: string }>();
-  const { asOwner, asBorrower, loading, error } = useMyLoans();
+  const { asOwner, asBorrower, loading, error, retry } = useMyLoans();
   const linkMap = useLinkMap();
   const buckets = useMemo(() => bucketLoans(uid, asOwner, asBorrower), [uid, asOwner, asBorrower]);
 
@@ -188,13 +188,7 @@ export default function LoansScreen() {
       </View>
     );
   } else if (error) {
-    body = (
-      <EmptyState
-        icon={Inbox}
-        title="Couldn’t load your loans"
-        description="Check your connection. Loans update by themselves when you’re back online."
-      />
-    );
+    body = <LoadErrorState title="Couldn’t load your loans" onRetry={retry} />;
   } else if (current === 'requests') {
     const empty = !buckets.incoming.length && !buckets.outgoing.length;
     body = (

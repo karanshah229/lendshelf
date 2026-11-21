@@ -18,6 +18,8 @@ export interface RankOptions {
   uid: string;
   /** Item ids I have an open request for. */
   requestedItemIds?: ReadonlySet<string>;
+  /** Item ids I'm borrowing right now (shown as "With you"). */
+  borrowedItemIds?: ReadonlySet<string>;
   /** Display name for an owner, used as the last tie-breaker. */
   nameOf?: (ownerId: string) => string;
 }
@@ -27,13 +29,15 @@ const STATUS_RANK: Record<ItemStatus['kind'], number> = {
   requested: 1,
   lent: 2,
   notLendable: 3,
+  hidden: 4,
 };
 
 function dueMillis(status: ItemStatus): number {
+  if (status.kind === 'lent' && status.withMe) return -Infinity;
   return status.kind === 'lent' && status.dueDate ? status.dueDate.getTime() : Infinity;
 }
 
-/** Compares two copies: available first, then requested by me, then lent (back soonest first), then not lendable. */
+/** Compares two copies: available first, then requested by me, then lent (with me first, then back soonest), then not lendable. */
 export function compareCircleCopies(
   a: CircleCopy,
   b: CircleCopy,
@@ -54,7 +58,7 @@ export function compareCircleCopies(
 /** Splits copies into mine and others (deduplicated by id) and ranks each list. */
 export function rankCircleCopies<T extends CircleItem>(
   copies: readonly T[],
-  { uid, requestedItemIds, nameOf }: RankOptions
+  { uid, requestedItemIds, borrowedItemIds, nameOf }: RankOptions
 ): { mine: CircleCopy<T>[]; others: CircleCopy<T>[] } {
   const seen = new Set<string>();
   const mine: CircleCopy<T>[] = [];
@@ -65,6 +69,7 @@ export function rankCircleCopies<T extends CircleItem>(
     const isMine = item.ownerId === uid;
     const status = itemStatus(item, {
       requestedByMe: !isMine && !!requestedItemIds?.has(item.id),
+      borrowedByMe: !isMine && !!borrowedItemIds?.has(item.id),
     });
     (isMine ? mine : others).push({ item, isMine, status });
   }

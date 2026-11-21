@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 
 import { BookRow } from '@/components/book-row';
-import { EmptyState } from '@/components/empty-state';
+import { EmptyState, LoadErrorState } from '@/components/empty-state';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +21,12 @@ import { rankCircleCopies, summarizeCircleCopies } from '@/features/book/circle-
 import { CatalogueResults } from '@/features/discover/CatalogueResults';
 import { DiscoverHome } from '@/features/discover/DiscoverHome';
 import { CATALOGUE_MIN_LENGTH } from '@/features/discover/use-catalogue-search';
-import { useCircleItems, useNameOf, useRequestedItemIds } from '@/features/shared/hooks';
+import {
+  useBorrowedItemIds,
+  useCircleItems,
+  useNameOf,
+  useRequestedItemIds,
+} from '@/features/shared/hooks';
 import { BookRowSkeletons, SectionHeader } from '@/features/shared/ui';
 import { wishlistAvailability } from '@/features/wishlist/availability';
 import { AvailabilityLine } from '@/features/wishlist/AvailabilityLine';
@@ -32,15 +37,21 @@ export default function DiscoverScreen() {
   const [q, setQ] = useState('');
   const [showCatalogue, setShowCatalogue] = useState(false);
   const { links, loading: linksLoading } = useLinks();
-  const { items, networkItems, loading } = useCircleItems();
+  const { items, networkItems, loading, error, retry } = useCircleItems();
   const requestedItemIds = useRequestedItemIds();
+  const borrowedItemIds = useBorrowedItemIds();
   const nameOf = useNameOf();
 
   const searching = q.trim().length > 0;
   const results = useMemo(() => {
     if (!searching) return [];
     return searchCopies(items, q).map((g) => {
-      const ranked = rankCircleCopies(g.copies, { uid, requestedItemIds, nameOf });
+      const ranked = rankCircleCopies(g.copies, {
+        uid,
+        requestedItemIds,
+        borrowedItemIds,
+        nameOf,
+      });
       const summary = summarizeCircleCopies(ranked);
       return {
         group: g,
@@ -49,7 +60,7 @@ export default function DiscoverScreen() {
         coverUrl: g.copies.find((c) => c.coverUrl)?.coverUrl ?? null,
       };
     });
-  }, [items, q, searching, uid, requestedItemIds, nameOf]);
+  }, [items, q, searching, uid, requestedItemIds, borrowedItemIds, nameOf]);
 
   const onChangeQuery = (text: string) => {
     setQ(text);
@@ -113,6 +124,12 @@ export default function DiscoverScreen() {
           <View className="gap-8">
             {loading ? (
               <BookRowSkeletons count={3} />
+            ) : error && !results.length ? (
+              <LoadErrorState
+                title="Couldn’t search your circle"
+                onRetry={retry}
+                className="py-6"
+              />
             ) : results.length ? (
               <View>
                 <SectionHeader
@@ -193,9 +210,17 @@ export default function DiscoverScreen() {
               items={items}
               networkItems={networkItems}
               requestedItemIds={requestedItemIds}
+              borrowedItemIds={borrowedItemIds}
               nameOf={nameOf}
             />
-            {networkItems.length === 0 ? (
+            {error ? (
+              <LoadErrorState
+                title={
+                  items.length ? 'Some books couldn’t load' : 'Couldn’t load your circle’s books'
+                }
+                onRetry={retry}
+              />
+            ) : networkItems.length === 0 ? (
               <EmptyState
                 icon={BookPlus}
                 title="Nothing shared yet"

@@ -18,8 +18,12 @@ export interface WorkGroup<T extends SearchableCopy> {
   score: number;
 }
 
-/** Lowercase, strip diacritics and punctuation, collapse whitespace. "Gabriel García-Márquez" → "gabriel garcia marquez". */
-export function normaliseText(value: string): string {
+/**
+ * Lowercase, strip diacritics and punctuation, collapse whitespace. "Gabriel García-Márquez" →
+ * "gabriel garcia marquez". Non-strings (malformed documents) normalise to "".
+ */
+export function normaliseText(value: unknown): string {
+  if (typeof value !== 'string') return '';
   return value
     .normalize('NFKD')
     .replace(/\p{M}+/gu, '')
@@ -46,12 +50,14 @@ function fieldTokenScore(field: string, fieldWords: string[], token: string): nu
  * otherwise the score is 0. Title matches outrank author matches; exact and prefix
  * matches of the whole title get a bonus.
  */
-export function scoreWork(title: string, authors: string[], query: string): number {
+export function scoreWork(title: string, authors: readonly string[], query: string): number {
   const tokens = tokenize(query);
   if (!tokens.length) return 0;
+  // Defensive: documents are typed, but a malformed one mustn't crash search.
+  const names = Array.isArray(authors) ? authors.filter((au) => typeof au === 'string') : [];
   const t = normaliseText(title);
   const tWords = t.split(' ');
-  const a = normaliseText(authors.join(' '));
+  const a = normaliseText(names.join(' '));
   const aWords = a.split(' ');
   const q = tokens.join(' ');
 
@@ -65,7 +71,7 @@ export function scoreWork(title: string, authors: string[], query: string): numb
   if (t === q) score += 100;
   else if (t.startsWith(q)) score += 50;
   else if (t.includes(q)) score += 20;
-  if (a === q || authors.some((au) => normaliseText(au) === q)) score += 40;
+  if (a === q || names.some((au) => normaliseText(au) === q)) score += 40;
   return score;
 }
 

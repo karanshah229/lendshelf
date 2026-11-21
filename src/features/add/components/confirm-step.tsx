@@ -30,8 +30,11 @@ import { toastError } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { defaultShelfId, type ItemFormat, type Visibility } from '@/types/model';
 
-/** Choices are remembered for the next add in this session. */
-let remembered: Pick<CopySettings, 'shelfId' | 'visibility' | 'format'> | null = null;
+/**
+ * Collection and visibility are remembered for the next add in this session. Format and
+ * language start unset for every book (language: as detected by the catalogue, if it was).
+ */
+let remembered: Pick<CopySettings, 'shelfId' | 'visibility'> | null = null;
 
 export interface SavedResult {
   count: number;
@@ -83,7 +86,7 @@ export function ConfirmStep({
 
   const [shelfChoice, setShelfChoice] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<Visibility>(remembered?.visibility ?? 'lendable');
-  const [format, setFormat] = useState<ItemFormat | null>(remembered?.format ?? null);
+  const [format, setFormat] = useState<ItemFormat | null>(null);
   const [language, setLanguage] = useState<string | 'auto' | null>(
     batch ? 'auto' : (single?.language ?? null)
   );
@@ -107,7 +110,7 @@ export function ConfirmStep({
     setSaving(true);
     try {
       await addCopies({ uid, shelf, candidates, settings });
-      remembered = { shelfId: shelf.id, visibility, format };
+      remembered = { shelfId: shelf.id, visibility };
       onSaved({
         count: candidates.length,
         shelfName: shelf.name,
