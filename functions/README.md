@@ -75,16 +75,16 @@ Aliases in `../.firebaserc`: `dev` = `lendshelf-dev`, `prod` = `lendshelf-prod`,
 | Storage bucket | Taken from `FIREBASE_CONFIG` at deploy time (`lendshelf-<env>.firebasestorage.app`); only `deleteAccount` uses it. |
 | Emulator-only code | The `_testPushes` recorder runs only when `FUNCTIONS_EMULATOR=true`, which Cloud never sets, so real pushes go to Expo. `scripts/seed.ts` hard-codes `demo-lendshelf` and the emulator hosts, so it can't touch a real project. No project id is hard-coded in `src/`. |
 
-### State on 2026-11-21 (both projects, Spark plan)
+### State on 2026-11-21 (both projects on Blaze)
 
-Done: Firestore `(default)` in `asia-south1` with rules and indexes, Auth with the Phone provider (dev has test numbers +919000000001..5; codes in firebase-config/TEST-NUMBERS.md or the console), Android/iOS/web apps. `deploy --only firestore --dry-run` passes for both; `storage.rules` compiles.
+Done in both: Firestore `(default)` in `asia-south1` with rules and indexes; Auth with the Phone provider (SMS limited to India; dev also has test numbers +919000000001..5, codes in firebase-config/TEST-NUMBERS.md or the console); Android/iOS/web apps; the Storage bucket `lendshelf-<env>.firebasestorage.app` in **`us-central1`** (inside Cloud Storage's free tier) with `storage.rules`; all 19 functions. Dev was checked end to end: sign-in with a test number, `onUserCreated`, `completeProfile`, `syncContacts`.
 
-APIs already on: `firestore`, `firebaserules`, `identitytoolkit`, `pubsub`, `storage`, `logging`, `runtimeconfig`. Off (the first functions deploy turns these on, and each needs Blaze): `cloudfunctions`, `cloudbuild`, `artifactregistry`, `run`, `eventarc`, `cloudscheduler`, `firebasestorage` (turned on by Storage "Get started"). `secretmanager` stays off (nothing uses it). `firebaseappcheck` turns on when you open App Check in the console. Neither project has an App Engine app or an organization.
+`secretmanager` stays off (nothing uses it). `firebaseappcheck` turns on when you open App Check in the console. Neither project has an App Engine app or an organization.
 
 ### First deploy, in order (do dev completely, then prod)
 
 1. **Upgrade the project to Blaze and set a budget alert** (see below).
-2. **Create the Storage bucket:** Console → Storage → Get started → location `asia-south1` (to match Firestore and the functions), production-mode rules. Do this before deploying, because `deploy:dev` includes `storage` and fails without a bucket, and `deleteAccount` would leave cover photos behind (it only logs a warning).
+2. **Create the Storage bucket:** Console → Storage → Get started → location `us-central1` (the free tier only covers US buckets; cover photos are small and cached, so the distance doesn't matter), production-mode rules. Both existing projects already have theirs. Do this before deploying, because `deploy:dev` includes `storage` and fails without a bucket, and `deleteAccount` would leave cover photos behind (it only logs a warning).
 3. **`npm run deploy:dev:dry-run`**: builds, discovers the functions and turns on the missing APIs (answer yes if asked). It prints the IAM roles the real deploy will grant. It deploys nothing.
 4. **`npm run deploy:dev`**: deploys Firestore rules and indexes, Storage rules and all 19 functions. On the first run it asks how many days to keep container images in Artifact Registry: answer `1`. You can set this later with `npm run firebase -- functions:artifacts:setpolicy --project dev`. If it asks whether to delete indexes that aren't in `firestore.indexes.json`, answer no unless you know why they're there.
 5. **Check it:**
@@ -98,7 +98,7 @@ To redeploy only one part, run `deploy:{dev,prod}:firestore`, `:storage` or `:fu
 
 ### First-deploy IAM gotchas
 
-The firebase CLI grants these roles itself on the first deploy, which works because you are Owner: Pub/Sub service agent → Service Account Token Creator, and the default compute service account → Cloud Run Invoker and Eventarc Event Receiver. If something still fails:
+The first deploy needs three roles: Pub/Sub service agent → Service Account Token Creator, and the default compute service account → Cloud Run Invoker and Eventarc Event Receiver. On both LendShelf projects the CLI failed to add them itself ("We failed to modify the IAM policy"), because the service agents only appear partway through that first run. What worked: let the first deploy fail, add the three roles (the CLI prints the exact `gcloud projects add-iam-policy-binding` commands; or IAM in Cloud Console), wait about 5 minutes, deploy again. On the retry `onUserCreated` (1st gen) and `onItemWritten` can still fail once on propagation ("failed to ensure registry read/write access", "Permission denied while using the Eventarc Service Agent"); a third run a few minutes later succeeds. If something else fails:
 
 - **Eventarc "Permission denied while using the Eventarc Service Agent"** (or "Invalid resource state") on `onItemWritten`: new service agents take a few minutes to propagate. Wait 5–10 minutes, then run `deploy:dev:functions` again.
 - **Cloud Build "missing permission on the build service account"**: new projects build as the default compute service account. Grant it the builder role:
@@ -127,7 +127,7 @@ Blaze has no spending cap; a budget only sends alerts. Before the first deploy, 
 - Cloud Run/Functions free tier: 2M requests a month.
 - Cloud Scheduler: 3 free jobs per billing account. This project uses 1 job per project.
 - Artifact Registry: 0.5 GB free. The cleanup policy keeps images under that.
-- Storage: buckets outside `us-central1`/`us-east1`/`us-west1` have no free tier, so the `asia-south1` bucket is billed from the first byte (about US$0.02–0.03 per GB-month, plus operations and egress). For cover photos that is pennies.
+- Storage: the buckets are in `us-central1`, which has Cloud Storage's free tier (5 GB-months, plus free operations and egress allowances). Buckets in other regions, such as `asia-south1`, are billed from the first byte.
 
 `maxInstances: 10` caps how far a traffic spike or a loop can scale.
 
