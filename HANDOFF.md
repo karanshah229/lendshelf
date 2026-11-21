@@ -1,4 +1,38 @@
-# Morning handoff — LendShelf v1
+# Handoff — LendShelf
+
+## 2026-11-21 update
+
+The code changes are in commit `fd901b7`.
+
+**UX v1.1.** The app now follows [docs/ux/UX-FLOWS.md](docs/ux/UX-FLOWS.md): Home with "Needs you", an urgency-sorted Loans ledger, a Loan screen, decline reasons, not-collected / not-returned / owner-left states, a contacts shrink guard, first-run and invite flows, and an accessibility pass. The end-to-end QA run and its fixes are in [docs/ux/QA-V1.1.md](docs/ux/QA-V1.1.md).
+
+**Phone testing.** Release APKs (arm64-v8a) install on a physical phone over USB. In emulator mode the phone reaches the local emulators through `adb reverse`; in dev mode it talks to `lendshelf-dev`. Steps are in README → *Android build*. Fixed while testing on a phone:
+
+- The placeholder API key now has the shape Firebase expects. The native Functions SDK rejected every callable with the old one.
+- Onboarding waits for a saved name, not just any profile document.
+- The keyboard no longer covers footer buttons on Android.
+
+**Firebase environments.** `APP_ENV` picks `emulator`, `dev` (`lendshelf-dev`) or `prod` (`lendshelf-prod`) at build time. Real app configs live in the git-ignored `firebase-config/<env>/`, downloaded with `npm run firebase:config`. See README → *Environments*.
+
+| Set up in both real projects | Dev only |
+|---|---|
+| Firestore (`asia-south1`), rules and indexes deployed | Test numbers +91 90000 00001 to 05 (code in the Firebase console) |
+| Phone auth, SMS limited to India | SHA-1 / SHA-256 of the React Native debug keystore |
+| Android, iOS and web apps (`com.lendshelf.app`) | |
+
+**Blockers (owner action needed):**
+
+| Blocker | Effect | Fix |
+|---|---|---|
+| Both projects are on Spark | No Cloud Functions, Storage bucket or scheduled jobs, so onboarding and every callable fail on dev and prod | Upgrade to Blaze (payment method), set a budget alert, then deploy ([functions/README.md → Deploying to dev / prod](functions/README.md#deploying-to-dev--prod)) |
+| Prod has no signing key fingerprints | Phone sign-in doesn't work on prod | Add the release and Play app signing SHA-1 / SHA-256 |
+| EAS isn't set up | No cloud builds; `firebase-config/` isn't available to EAS | `eas init`, then pass the config files to EAS (e.g. file environment variables) |
+
+The full list is in README → *Going live*.
+
+---
+
+## Earlier handoff (v1, emulators only)
 
 The app is built, tested and running locally on the Firebase emulators. It works on web and on the Android emulator. Nothing is deployed, and no real Firebase, Expo or Apple accounts were created or used.
 

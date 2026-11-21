@@ -68,6 +68,32 @@ Zoya has Asha saved, but Asha doesn't have Zoya — useful for checking one-way 
 
 See [Android build](#android-build) below.
 
+## Environments
+
+`APP_ENV` picks the Firebase project when the app is bundled or prebuilt (app.config.ts).
+
+| Env | Firebase project | Selected when | App config comes from | Run / build |
+|---|---|---|---|---|
+| `emulator` | `demo-lendshelf` (local Emulator Suite) | `EXPO_PUBLIC_USE_EMULATORS=1` | Placeholder `google-services.json` and `GoogleService-Info.plist` in the repo root; demo web values in `src/lib/firebase/config.ts` | `npm run dev:web`; Android: [Android build](#android-build) |
+| `dev` | `lendshelf-dev` | `APP_ENV=dev`, or neither variable set | `firebase-config/dev/` | `npm run dev:web:real`; Android: [Physical phone, dev or prod](#android-build) |
+| `prod` | `lendshelf-prod` | Only `APP_ENV=prod` (never implicit) | `firebase-config/prod/` | `APP_ENV=prod` builds; phone sign-in doesn't work yet (see [Going live](#going-live)) |
+
+`firebase-config/` is git-ignored. Download the real app configs with the Firebase CLI from `functions/`:
+
+```powershell
+npm --prefix functions install
+npm --prefix functions run firebase -- login
+npm run firebase:config
+```
+
+`npm run firebase:config -- dev` fetches one environment only.
+
+Notes:
+
+- `npm start`, `npm run web` and `npm run android` with no variables now build against `dev`, so they need `firebase-config/dev/`.
+- app.config.ts stops with an error if the config files are missing, or if `APP_ENV=dev|prod` is combined with `EXPO_PUBLIC_USE_EMULATORS=1`.
+- Dev has test numbers +91 90000 00001 to 05 that don't send SMS. Their code is in `firebase-config/TEST-NUMBERS.md` (git-ignored) or the Firebase console (Authentication → Sign-in method → Phone).
+
 ## Checks
 
 ```powershell
@@ -99,25 +125,42 @@ The backend suite runs its own emulators on shifted ports, so it works while `np
 | `src/hooks/`, `src/stores/` | Data hooks (Firestore listeners) and zustand stores |
 | `functions/` | Cloud Functions, rules tests, integration tests, seed script |
 | `firestore.rules`, `storage.rules` | Security rules |
+| `scripts/` | `firebase-config.mjs` (`npm run firebase:config`) |
+| `firebase-config/<env>/` | Real app configs for `dev` and `prod` (git-ignored, downloaded) |
+| `google-services.json`, `GoogleService-Info.plist` | Placeholder configs for the `emulator` env |
+| `docs/ux/` | UX v1.1 flows, review, QA run and screenshots |
 
-## Going live (what you need to do)
+## Going live
 
-1. **Create a Firebase project** (Blaze plan — Cloud Functions require it; set a budget alert).
-   - Enable **Authentication → Phone**.
-   - Create **Firestore** (region `asia-south1`) and **Storage**.
-2. **Register the apps** with id `com.lendshelf.app`:
-   - Android: add the SHA-1 and SHA-256 of your signing key (EAS shows them; needed for phone auth). Download `google-services.json` and replace the placeholder in the repo root.
-   - iOS: download `GoogleService-Info.plist` and replace the placeholder.
-3. **Deploy the backend**: set the project in `.firebaserc`, then deploy rules, indexes and functions (`npm --prefix functions run deploy`, see functions/README.md).
-4. **Expo / EAS**: run `npx eas-cli init` (adds `extra.eas.projectId` — push notifications are skipped until this exists), upload FCM v1 credentials for Android push and let EAS manage the APNs key for iOS.
-5. **Builds for testers**:
-   - Android APK: `npx eas-cli build -p android --profile preview` (or build locally, see below) and send the APK.
-   - iOS: `npx eas-cli build -p ios` then `npx eas-cli submit -p ios` to TestFlight (needs your Apple Developer account).
-6. **Before wider release**: turn on App Check (see functions/README.md), add a Google Books API key, and review the privacy policy screen.
+### Done
+
+| Item | `lendshelf-dev` | `lendshelf-prod` |
+|---|---|---|
+| Firestore in `asia-south1`, rules and indexes deployed | Yes | Yes |
+| Phone auth on, SMS limited to India (IN) | Yes | Yes |
+| Android, iOS and web apps registered (`com.lendshelf.app`) | Yes | Yes |
+| Test phone numbers (+91 90000 00001 to 05) | Yes | No |
+| SHA-1 / SHA-256 of the signing key | Standard React Native debug keystore | Not yet |
+| Plan | Spark | Spark |
+
+### Left to do
+
+1. **Upgrade both projects to Blaze.** The owner has to do this (it needs a payment method) and should set a budget alert. Cloud Functions, the Storage bucket and the scheduled jobs all need Blaze. Until then, anything that calls a function fails on dev and prod, including finishing onboarding.
+2. **Deploy the backend** (functions, Storage bucket and rules): see [functions/README.md → Deploying to dev / prod](functions/README.md#deploying-to-dev--prod).
+3. **Prod signing keys.** Add the SHA-1 and SHA-256 of the real release key and of the Play app signing key to the prod Android app, then run `npm run firebase:config -- prod`. Phone sign-in on prod doesn't work until then. Local release APKs are signed with the debug keystore (android/app/build.gradle), so they only work against dev.
+4. **App Check.** The app doesn't include the App Check SDK yet. Add it, then set `ENFORCE_APP_CHECK=true` for the functions (see functions/README.md).
+5. **Expo / EAS** (not set up yet; there is no `eas.json`):
+   - Run `npx eas-cli init`. It adds `extra.eas.projectId`; push registration is skipped until this exists.
+   - Upload FCM v1 credentials for Android push and let EAS manage the APNs key for iOS.
+   - EAS builds can't see `firebase-config/` because it's git-ignored. Provide the files to EAS, for example as EAS file environment variables, and have app.config.ts read them from there.
+6. **Builds for testers**:
+   - Android APK: `npx eas-cli build -p android --profile preview` (once EAS is set up), or build locally (see [Android build](#android-build)).
+   - iOS: `npx eas-cli build -p ios`, then `npx eas-cli submit -p ios` to TestFlight (needs your Apple Developer account).
+7. **Before wider release**: review the privacy policy screen. Google Books lookups currently run without an API key.
 
 ## Android build
 
-This uses Continuous Native Generation: `android/` is generated by `expo prebuild` and isn't committed. The commands below are for Git Bash on Windows, run from the repo root, with the Firebase emulators running.
+This uses Continuous Native Generation: `android/` is generated by `expo prebuild` and isn't committed. The commands below are for Git Bash on Windows, run from the repo root. Emulator-mode builds also need the Firebase emulators running.
 
 **Windows long-path workaround.** The SDK's default CMake 3.22.1 ships ninja 1.10, which fails on react-native-reanimated's long object paths. Use a newer CMake/ninja; Visual Studio's works:
 
@@ -168,9 +211,25 @@ for p in 9099 8080 5001 9199; do adb -s <serial> reverse tcp:$p tcp:$p; done   #
 adb -s <serial> install -r android/app/build/outputs/apk/release/app-release.apk
 ```
 
+**Physical phone, dev or prod (real Firebase, ARM):** the app talks to `lendshelf-dev` (or `lendshelf-prod`) over the internet, so no emulators and no `adb reverse`. Sign-in sends a real SMS; on dev you can use the test numbers instead (see [Environments](#environments)). Run `npm run firebase:config` first.
+
+Prebuild copies `google-services.json` into `android/app`, so run prebuild again whenever you switch environment (add `--clean` for a fresh `android/`, then rewrite `android/local.properties`). Keep `APP_ENV` set for the Gradle build too, because it bundles the JS.
+
+```bash
+unset EXPO_PUBLIC_USE_EMULATORS EXPO_PUBLIC_EMULATOR_HOST
+export APP_ENV=dev   # or prod
+npx expo prebuild --platform android
+# Windows: same loopback fix as above
+mkdir -p android/.jtmp && export JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=$(cygpath -w "$PWD/android/.jtmp")"
+(cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a && ./gradlew --stop)
+adb -s <serial> install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
 Notes:
 
 - A cold build takes 30+ minutes on a busy machine; incremental builds are around 15 minutes.
-- Drop `-PreactNativeArchitectures=x86_64` to build for real phones (ARM), which hasn't been tested yet.
+- Use `-PreactNativeArchitectures=x86_64` for the Android emulator and `arm64-v8a` for real phones.
 - Android 17 (API 37) blocks apps from reaching private IPs like `10.0.2.2` without the "nearby devices" (`ACCESS_LOCAL_NETWORK`) permission. Emulator builds ask for it when you request a code; tap **Allow**.
-- An emulator build can't talk to real Firebase, and a real build can't talk to the emulators. For phones, build without the `EXPO_PUBLIC_USE_EMULATORS` variables after setting up a real Firebase project.
+- An emulator build can't talk to real Firebase, and a real build can't talk to the emulators.
+- Local release APKs are signed with the React Native debug keystore. Its SHA fingerprints are registered on dev only, so phone sign-in works on dev but not on prod.
+- On dev and prod, anything that calls a Cloud Function fails until the projects are on Blaze and the functions are deployed (see [Going live](#going-live)).

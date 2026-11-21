@@ -16,7 +16,11 @@
     "lint": "expo lint",
     "test": "jest",
     "firebase:config": "node scripts/firebase-config.mjs",
-    "dev:web:real": "cross-env APP_ENV=dev expo start --web"
+    "dev:web:real": "cross-env APP_ENV=dev expo start --web",
+    "deploy:dev": "npm --prefix functions run deploy:dev",
+    "deploy:dev:dry-run": "npm --prefix functions run deploy:dev:dry-run",
+    "deploy:prod": "npm --prefix functions run deploy:prod",
+    "deploy:prod:dry-run": "npm --prefix functions run deploy:prod:dry-run"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

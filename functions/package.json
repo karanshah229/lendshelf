@@ -16,7 +16,17 @@
     "test": "npm run build && npm run test:unit && node scripts/firebase.mjs emulators:exec --config ../firebase.test.json --project demo-lendshelf --only auth,firestore,functions,storage \"vitest run --config vitest.rules.config.mts && vitest run --config vitest.integration.config.mts\"",
     "serve": "npm run build && node scripts/firebase.mjs emulators:start --project demo-lendshelf",
     "firebase": "node scripts/firebase.mjs",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "deploy:dev": "node scripts/firebase.mjs deploy --project dev --only firestore,storage,functions",
+    "deploy:dev:dry-run": "node scripts/firebase.mjs deploy --project dev --only firestore,storage,functions --dry-run",
+    "deploy:dev:firestore": "node scripts/firebase.mjs deploy --project dev --only firestore:rules,firestore:indexes",
+    "deploy:dev:storage": "node scripts/firebase.mjs deploy --project dev --only storage",
+    "deploy:dev:functions": "node scripts/firebase.mjs deploy --project dev --only functions",
+    "deploy:prod": "node scripts/firebase.mjs deploy --project prod --only firestore,storage,functions",
+    "deploy:prod:dry-run": "node scripts/firebase.mjs deploy --project prod --only firestore,storage,functions --dry-run",
+    "deploy:prod:firestore": "node scripts/firebase.mjs deploy --project prod --only firestore:rules,firestore:indexes",
+    "deploy:prod:storage": "node scripts/firebase.mjs deploy --project prod --only storage",
+    "deploy:prod:functions": "node scripts/firebase.mjs deploy --project prod --only functions"
   },
   "dependencies": {
     "firebase-admin": "^14.5.1",

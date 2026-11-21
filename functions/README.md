@@ -33,9 +33,12 @@ Run from the repo root with `npm --prefix functions run <script>`, or from this 
 | `test:rules` | Firestore + Storage rules tests (starts its own emulators via `emulators:exec`) |
 | `test:integration` | Build, then call the deployed-in-emulator callables with the Firebase JS SDK |
 | `test` | All three |
+| `firebase -- <args>` | Any firebase-tools command with the right Java, e.g. `npm run firebase -- emulators:start --only firestore` |
+| `deploy:dev`, `deploy:prod` | Deploy Firestore rules + indexes, Storage rules and all functions to `lendshelf-dev` / `lendshelf-prod`. See "Deploying to dev / prod". |
+| `deploy:{dev,prod}:dry-run` | Same, with `--dry-run` (validates and builds, deploys nothing; **does** enable missing APIs, so only after Blaze) |
+| `deploy:{dev,prod}:firestore` / `:storage` / `:functions` | One part only |
 
 The `test*` scripts start their own emulators from `../firebase.test.json` (Auth 19099, Firestore 18080, Functions 15001, Storage 19199, hub 14400, logging 14500, Firestore websocket 19150), so they never touch the data of a running `serve`. The integration helpers read the Functions port from the emulator hub.
-| `firebase -- <args>` | Any firebase-tools command with the right Java, e.g. `npm run firebase -- emulators:start --only firestore` |
 
 Stop `serve` with Ctrl+C. `serve` needs ports 4000, 4400, 4500, 5001, 8080, 9099, 9150, 9199 free; `test:*` need 14400, 14500, 15001, 18080, 19099, 19150, 19199, 19299, 19499.
 
@@ -55,11 +58,84 @@ Everyone has everyone saved except that **Asha does not have Zoya** (Zoya has As
 
 Sign-in codes: the Auth emulator never sends SMS; read the code from `GET http://127.0.0.1:9099/emulator/v1/projects/demo-lendshelf/verificationCodes`.
 
+## Deploying to dev / prod
+
+Aliases in `../.firebaserc`: `dev` = `lendshelf-dev`, `prod` = `lendshelf-prod`, `default` = `demo-lendshelf` (emulators only, so a bare `firebase deploy` can't reach a real project). Every deploy script names its project; nothing deploys to prod unless the script name says `prod`. Run them from the repo root (`npm run deploy:dev`) or from this folder.
+
+### What the code needs from a real project
+
+| Item | Status |
+|---|---|
+| Params / secrets | None. No `defineString`/`defineSecret`, so Secret Manager is not used. The only env var is `ENFORCE_APP_CHECK`, read from `.env.dev` / `.env.prod` (both `false`). |
+| Callables (16) | v2 (Cloud Run), `asia-south1`, `maxInstances: 10` each |
+| `onItemWritten` | v2 Firestore trigger via Eventarc. The trigger region must match the database: both are `asia-south1`. |
+| `dailyMaintenance` | v2 schedule: one Cloud Scheduler job in `asia-south1`, 09:00 Asia/Kolkata |
+| `onUserCreated` | v1 (1st gen) Auth trigger: v2 has no non-blocking "user created" event |
+| Push | Expo push API: no server key in the functions. Delivery needs the FCM V1 service-account key (Android) and APNs key (iOS) uploaded to the Expo/EAS project. If you turn on Expo's "enhanced push security", the functions would need an Expo access token (not supported today). |
+| Storage bucket | Taken from `FIREBASE_CONFIG` at deploy time (`lendshelf-<env>.firebasestorage.app`); only `deleteAccount` uses it. |
+| Emulator-only code | The `_testPushes` recorder runs only when `FUNCTIONS_EMULATOR=true`, which Cloud never sets, so real pushes go to Expo. `scripts/seed.ts` hard-codes `demo-lendshelf` and the emulator hosts, so it can't touch a real project. No project id is hard-coded in `src/`. |
+
+### State on 2026-11-21 (both projects, Spark plan)
+
+Done: Firestore `(default)` in `asia-south1` with rules and indexes, Auth with the Phone provider (dev has test numbers +919000000001..5; codes in firebase-config/TEST-NUMBERS.md or the console), Android/iOS/web apps. `deploy --only firestore --dry-run` passes for both; `storage.rules` compiles.
+
+APIs already on: `firestore`, `firebaserules`, `identitytoolkit`, `pubsub`, `storage`, `logging`, `runtimeconfig`. Off (the first functions deploy turns these on, and each needs Blaze): `cloudfunctions`, `cloudbuild`, `artifactregistry`, `run`, `eventarc`, `cloudscheduler`, `firebasestorage` (turned on by Storage "Get started"). `secretmanager` stays off (nothing uses it). `firebaseappcheck` turns on when you open App Check in the console. Neither project has an App Engine app or an organization.
+
+### First deploy, in order (do dev completely, then prod)
+
+1. **Upgrade the project to Blaze and set a budget alert** (see below).
+2. **Create the Storage bucket:** Console → Storage → Get started → location `asia-south1` (to match Firestore and the functions), production-mode rules. Do this before deploying, because `deploy:dev` includes `storage` and fails without a bucket, and `deleteAccount` would leave cover photos behind (it only logs a warning).
+3. **`npm run deploy:dev:dry-run`**: builds, discovers the functions and turns on the missing APIs (answer yes if asked). It prints the IAM roles the real deploy will grant. It deploys nothing.
+4. **`npm run deploy:dev`**: deploys Firestore rules and indexes, Storage rules and all 19 functions. On the first run it asks how many days to keep container images in Artifact Registry: answer `1`. You can set this later with `npm run firebase -- functions:artifacts:setpolicy --project dev`. If it asks whether to delete indexes that aren't in `firestore.indexes.json`, answer no unless you know why they're there.
+5. **Check it:**
+   - `npm run firebase -- functions:list --project dev` lists 19 functions.
+   - Sign in on a dev build with test number +919000000001 (code in firebase-config/TEST-NUMBERS.md). `users/{uid}`, `phoneIndex/+919000000001` and `shelves/default_{uid}` should appear (that's `onUserCreated`).
+   - Read the logs with `npm run firebase -- functions:log --project dev`.
+   - Cloud Scheduler shows `firebase-schedule-dailyMaintenance-asia-south1`. "Force run" it once to test.
+6. **Prod:** repeat steps 1–5 with `prod` (`npm run deploy:prod:dry-run`, then `npm run deploy:prod`). Prod has no test phone numbers.
+
+To redeploy only one part, run `deploy:{dev,prod}:firestore`, `:storage` or `:functions`.
+
+### First-deploy IAM gotchas
+
+The firebase CLI grants these roles itself on the first deploy, which works because you are Owner: Pub/Sub service agent → Service Account Token Creator, and the default compute service account → Cloud Run Invoker and Eventarc Event Receiver. If something still fails:
+
+- **Eventarc "Permission denied while using the Eventarc Service Agent"** (or "Invalid resource state") on `onItemWritten`: new service agents take a few minutes to propagate. Wait 5–10 minutes, then run `deploy:dev:functions` again.
+- **Cloud Build "missing permission on the build service account"**: new projects build as the default compute service account. Grant it the builder role:
+  `gcloud projects add-iam-policy-binding lendshelf-dev --member=serviceAccount:178098625183-compute@developer.gserviceaccount.com --role=roles/cloudbuild.builds.builder`
+  For prod use `lendshelf-prod` and `127074938608`.
+- **"Service account …-compute@developer.gserviceaccount.com does not exist"**: turn on the Compute Engine API. Turning it on is free (you pay only for VMs) and creates that account. Then deploy again.
+- **`onUserCreated` (1st gen) runs as `<project-id>@appspot.gserviceaccount.com`.** If the deploy says that account doesn't exist, follow the error's fix: turn the Cloud Functions API off and on again, which is harmless before any function is deployed. Or give that one function a `serviceAccount` in `runWith`.
+- You need `iam.serviceAccounts.actAs` on those accounts. Owner has it; a less privileged deployer needs "Service Account User".
+
+### Secrets
+
+None are used today. To add one, declare `defineSecret("NAME")` in code and pass it in the function's `secrets` option. Then run `npm run firebase -- functions:secrets:set NAME --project dev` (it prompts for the value and turns on Secret Manager), and redeploy. Never put secrets in `.env*` files: `.env.dev` and `.env.prod` are committed.
+
+### App Check
+
+`ENFORCE_APP_CHECK` is set per project in `functions/.env.dev` and `functions/.env.prod`. Both are `false`, so callables accept requests without a token. To turn it on for a project:
+1. Register the apps in Console → App Check (Play Integrity, App Attest/DeviceCheck, reCAPTCHA Enterprise for web).
+2. Ship an app build that sends App Check tokens.
+3. Set `ENFORCE_APP_CHECK=true` in that project's file.
+4. Run `deploy:<env>:functions`.
+
+### Budget alert
+
+Blaze has no spending cap; a budget only sends alerts. Before the first deploy, create a budget for each project in Cloud Console → Billing → Budgets & alerts (also reachable from Firebase Console → Usage and billing). Scope it to that one project, set a small monthly amount (for example the equivalent of US$5 for dev), and send email alerts at 50%, 90% and 100%. At LendShelf's scale the expected bill is close to zero:
+
+- Cloud Run/Functions free tier: 2M requests a month.
+- Cloud Scheduler: 3 free jobs per billing account. This project uses 1 job per project.
+- Artifact Registry: 0.5 GB free. The cleanup policy keeps images under that.
+- Storage: buckets outside `us-central1`/`us-east1`/`us-west1` have no free tier, so the `asia-south1` bucket is billed from the first byte (about US$0.02–0.03 per GB-month, plus operations and egress). For cover photos that is pennies.
+
+`maxInstances: 10` caps how far a traffic spike or a loop can scale.
+
 ## Functions
 
 All callables require a signed-in user. Errors are `HttpsError`s (`invalid-argument`, `not-found`, `permission-denied`, `failed-precondition`, `already-exists`, `resource-exhausted`, `unavailable`, `unauthenticated`, `internal`) with a user-readable message and no internal details.
 
-**App Check** is opt-in: set `ENFORCE_APP_CHECK=true` (e.g. in `functions/.env`) to make every callable reject requests without a valid App Check token. It is off by default so the emulators and current builds work. **Set up App Check in the app and turn this on before production.** Dates in requests are ISO 8601 strings; dates in responses don't appear (callers read Firestore).
+**App Check** is opt-in: set `ENFORCE_APP_CHECK=true` (per project in `functions/.env.dev` / `functions/.env.prod`, both `false` today) to make every callable reject requests without a valid App Check token. It is off by default so the emulators and current builds work. **Set up App Check in the app and turn this on before production.** Dates in requests are ISO 8601 strings; dates in responses don't appear (callers read Firestore).
 
 | Name | Type | Request → Response | Notes |
 |---|---|---|---|
