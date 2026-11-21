@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { BookX, Check, Clock, MessageCircle } from 'lucide-react-native';
-import { useState } from 'react';
+import { BookX, Check, CircleAlert, Clock, MessageCircle, UserPlus } from 'lucide-react-native';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,8 +15,15 @@ import { lentMessage, type Borrower } from '@/features/lend/borrowers';
 import { BorrowerPicker } from '@/features/lend/components/borrower-picker';
 import { DueDatePicker } from '@/features/lend/components/due-date-picker';
 import { defaultDueDate, dueDateToIso, relativeDueLabel } from '@/features/lend/due-date';
-import { useUid } from '@/hooks/use-auth';
+import { useInvite } from '@/features/invite/use-invite';
+import { lendDeclinesWarning } from '@/features/loans/requests';
+import { askForPushInContext } from '@/features/push-ask/ask';
+import { useLoanPeople } from '@/features/loans/use-loan-people';
+import { shortName } from '@/features/shared/people';
+import { requestsOnItems } from '@/features/shelves/pending-requests';
+import { useProfile, useUid } from '@/hooks/use-auth';
 import { useItem } from '@/hooks/use-items';
+import { useMyLoans } from '@/hooks/use-loans';
 import { api } from '@/lib/api';
 import { backLabel, formatShortDate } from '@/lib/dates';
 import { toastError } from '@/lib/toast';
@@ -92,6 +99,14 @@ function LendForm({
   const [borrower, setBorrower] = useState<Borrower | null>(null);
   const [due, setDue] = useState(() => defaultDueDate());
   const [saving, setSaving] = useState(false);
+  // recordLoan declines open requests for this copy (E7): say who, before Lend.
+  const { incomingRequests } = useMyLoans();
+  const requests = useMemo(
+    () => requestsOnItems(incomingRequests, [item.id]),
+    [incomingRequests, item.id]
+  );
+  const people = useLoanPeople(requests);
+  const warning = lendDeclinesWarning(requests.map((l) => people.name(l)));
 
   const submit = async () => {
     if (!borrower) return;
@@ -104,6 +119,8 @@ function LendForm({
         dueDate: dueDateToIso(due),
       });
       onLent({ borrower, due, title: item.title });
+      // C11: a recorded loan has a due date to be reminded about.
+      void askForPushInContext('lend', { name: borrower.name, title: item.title });
     } catch (e) {
       toastError(e, 'Couldn’t record the loan. Please try again.');
       setSaving(false);
@@ -131,6 +148,20 @@ function LendForm({
           </View>
         </View>
 
+        {warning ? (
+          <View
+            className="flex-row gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3"
+            accessibilityRole="alert"
+          >
+            <Icon
+              as={CircleAlert}
+              size={16}
+              className="mt-0.5 text-amber-700 dark:text-amber-400"
+            />
+            <Text className="flex-1 text-sm leading-5">{warning}</Text>
+          </View>
+        ) : null}
+
         <View className="gap-2.5">
           <Text className="text-sm font-semibold">Who’s borrowing it?</Text>
           <BorrowerPicker value={borrower} onChange={setBorrower} />
@@ -152,7 +183,7 @@ function LendForm({
             {saving
               ? 'Lending…'
               : borrower
-                ? `Lend to ${borrower.name.split(/\s+/)[0]}`
+                ? `Lend to ${shortName(borrower.name)}`
                 : 'Choose who’s borrowing it'}
           </Text>
         </Button>
@@ -163,11 +194,19 @@ function LendForm({
 
 function LentSuccess({ borrower, due, title }: { borrower: Borrower; due: Date; title: string }) {
   const insets = useSafeAreaInsets();
+  const invite = useInvite();
+  const firstName = shortName(borrower.name) || borrower.name;
+  // Greet by their profile name (R21); someone not on the app gets "Hi!".
+  const { profile } = useProfile(borrower.uid);
   const openWhatsApp = () => {
     if (!borrower.phone) return;
     const url = waLink(
       borrower.phone,
-      lentMessage({ borrowerName: borrower.name, title, dueDate: due })
+      lentMessage({
+        borrowerName: borrower.uid ? (profile?.name ?? null) : null,
+        title,
+        dueDate: due,
+      })
     );
     Linking.openURL(url).catch((e: unknown) => toastError(e, 'Couldn’t open WhatsApp.'));
   };
@@ -187,6 +226,23 @@ function LentSuccess({ borrower, due, title }: { borrower: Borrower; due: Date; 
             {borrower.uid ? ' They’ll see it in their Loans tab.' : ''}
           </Text>
         </View>
+        {borrower.uid ? null : (
+          // E2: lending to someone not on the app is a natural moment to invite them.
+          <View className="w-full items-center gap-2 rounded-xl border border-border px-4 py-4">
+            <Text className="text-center text-sm">
+              {firstName} isn’t on LendShelf. Invite them?
+            </Text>
+            <Button
+              variant="outline"
+              className="min-h-12"
+              onPress={() => void invite(borrower.phone)}
+              accessibilityLabel={`Invite ${firstName} to LendShelf`}
+            >
+              <Icon as={UserPlus} size={16} />
+              <Text>Invite {firstName}</Text>
+            </Button>
+          </View>
+        )}
       </View>
       <View className="gap-2">
         {borrower.phone ? (

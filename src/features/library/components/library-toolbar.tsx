@@ -79,8 +79,9 @@ export function LibraryToolbar({
         />
       </ScrollView>
 
-      <View className="px-4">
-        <View className="relative justify-center">
+      {/* The view toggle sits next to search so the status chips fit on one row at 375 px. */}
+      <View className="flex-row items-center gap-2 px-4">
+        <View className="relative flex-1 justify-center">
           <View className="absolute left-3 z-10" pointerEvents="none">
             <Icon as={Search} size={16} className="text-muted-foreground" />
           </View>
@@ -99,30 +100,13 @@ export function LibraryToolbar({
               className="absolute right-1 size-8 items-center justify-center rounded-full active:bg-accent"
               accessibilityRole="button"
               accessibilityLabel="Clear search"
+              hitSlop={8}
             >
               <Icon as={X} size={16} className="text-muted-foreground" />
             </Pressable>
           ) : null}
         </View>
-      </View>
-
-      <View className="flex-row items-center gap-2 px-4">
-        <View className="flex-1 flex-row flex-wrap gap-2">
-          <Chip label="All" selected={filter === 'all'} onPress={() => onFilterChange('all')} />
-          <Chip
-            label="Lent out"
-            count={counts.lent}
-            selected={filter === 'lent'}
-            onPress={() => onFilterChange('lent')}
-          />
-          <Chip
-            label="Hidden"
-            count={counts.hidden}
-            selected={filter === 'hidden'}
-            onPress={() => onFilterChange('hidden')}
-          />
-        </View>
-        <View className="h-8 flex-row rounded-md border border-border p-0.5">
+        <View className="h-10 flex-row rounded-md border border-border p-0.5">
           {(
             [
               { value: 'grid', icon: LayoutGrid, label: 'Grid view' },
@@ -135,8 +119,10 @@ export function LibraryToolbar({
               accessibilityRole="button"
               accessibilityLabel={o.label}
               accessibilityState={{ selected: view === o.value }}
+              // 36 dp segment, 48 dp touch target (F8).
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
               className={cn(
-                'w-8 items-center justify-center rounded-sm',
+                'w-9 items-center justify-center rounded-sm',
                 view === o.value && 'bg-accent'
               )}
             >
@@ -148,6 +134,37 @@ export function LibraryToolbar({
             </Pressable>
           ))}
         </View>
+      </View>
+
+      <View className="flex-row items-center px-4">
+        {/* One row (D4); scrolls sideways only when large fonts make it wider than the screen. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          className="flex-1"
+          contentContainerClassName="gap-2"
+          keyboardShouldPersistTaps="handled"
+        >
+          <Chip label="All" selected={filter === 'all'} onPress={() => onFilterChange('all')} />
+          <Chip
+            label="Out"
+            count={counts.lent}
+            selected={filter === 'lent'}
+            onPress={() => onFilterChange('lent')}
+          />
+          <Chip
+            label="Not lending"
+            count={counts.notLending}
+            selected={filter === 'notLending'}
+            onPress={() => onFilterChange('notLending')}
+          />
+          <Chip
+            label="Hidden"
+            count={counts.hidden}
+            selected={filter === 'hidden'}
+            onPress={() => onFilterChange('hidden')}
+          />
+        </ScrollView>
       </View>
     </View>
   );

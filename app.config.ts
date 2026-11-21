@@ -1,6 +1,41 @@
+/// <reference types="node" />
+// Runs in Node when Expo reads the config (not in the app bundle).
+import { existsSync, readFileSync } from 'node:fs';
+
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
 const APP_ID = 'com.lendshelf.app';
+
+/**
+ * Which Firebase project a build talks to (read when the app is bundled or prebuilt):
+ *   emulator: the local Emulator Suite (`demo-lendshelf`); placeholder config files in the repo root.
+ *   dev / prod: the real `lendshelf-dev` / `lendshelf-prod` projects; config files come from
+ *   firebase-config/<env>/ (git-ignored; `npm run firebase:config` downloads them).
+ * Default: emulator when EXPO_PUBLIC_USE_EMULATORS=1, otherwise dev. Prod is never implicit.
+ */
+const APP_ENV =
+  process.env.APP_ENV ?? (process.env.EXPO_PUBLIC_USE_EMULATORS === '1' ? 'emulator' : 'dev');
+if (!['emulator', 'dev', 'prod'].includes(APP_ENV)) {
+  throw new Error(`APP_ENV must be emulator, dev or prod (got "${APP_ENV}")`);
+}
+if (APP_ENV !== 'emulator' && process.env.EXPO_PUBLIC_USE_EMULATORS === '1') {
+  throw new Error(`APP_ENV=${APP_ENV} can't be combined with EXPO_PUBLIC_USE_EMULATORS=1`);
+}
+
+function firebaseFile(name: string): string {
+  if (APP_ENV === 'emulator') return `./${name}`;
+  const path = `./firebase-config/${APP_ENV}/${name}`;
+  if (!existsSync(path)) {
+    throw new Error(`Missing ${path}. Run \`npm run firebase:config\` (needs the Firebase CLI login).`);
+  }
+  return path;
+}
+
+/** Web SDK config for dev/prod web builds; null for the emulator (config.ts uses demo values). */
+function webConfig(): Record<string, string> | null {
+  if (APP_ENV === 'emulator') return null;
+  return JSON.parse(readFileSync(firebaseFile('web.json'), 'utf8')) as Record<string, string>;
+}
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -14,17 +49,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: APP_ID,
     supportsTablet: false,
-    // Placeholder for the `demo-lendshelf` emulator project. Replace with the real file
-    // downloaded from the Firebase console before building against a real project.
-    googleServicesFile: './GoogleService-Info.plist',
+    googleServicesFile: firebaseFile('GoogleService-Info.plist'),
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {
     package: APP_ID,
-    // Placeholder for the `demo-lendshelf` emulator project (see google-services.json).
-    googleServicesFile: './google-services.json',
+    googleServicesFile: firebaseFile('google-services.json'),
     adaptiveIcon: {
       backgroundColor: '#FFFFFF',
       foregroundImage: './assets/images/android-icon-foreground.png',
@@ -104,6 +136,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     typedRoutes: true,
   },
   extra: {
-    firebaseProjectId: 'demo-lendshelf',
+    appEnv: APP_ENV,
+    firebaseWeb: webConfig(),
   },
 });

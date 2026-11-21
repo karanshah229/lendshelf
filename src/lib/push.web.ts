@@ -9,6 +9,13 @@ export async function getPushPermission(): Promise<PushPermission> {
   return 'unsupported';
 }
 
+export async function getPushPermissionState(): Promise<{
+  permission: PushPermission;
+  canAskAgain: boolean;
+}> {
+  return { permission: 'unsupported', canAskAgain: false };
+}
+
 export async function registerForPush(
   _uid: string,
   _opts: { prompt?: boolean } = {}

@@ -17,6 +17,7 @@ import {
   type TestUser,
 } from "./helpers.js";
 import { runDailyMaintenance } from "../../src/handlers/maintenance.js";
+import { cancelRequestsForDeletedItem } from "../../src/handlers/triggers.js";
 import type { Deps } from "../../src/lib/context.js";
 import type { PushMessage } from "../../src/lib/push.js";
 import { COL, watchId, type LoanDoc, type WatchDoc } from "../../src/model.js";
@@ -98,6 +99,9 @@ describe("dailyMaintenance (handler invoked directly)", () => {
       overdue: { ...base, status: "active", requestedAt: null, dueDate: at(-2 * HOUR) },
       overdueNonApp: { ...base, borrowerUid: null, borrowerName: "Uncle", status: "active", requestedAt: null, dueDate: at(-7 * DAY - HOUR) },
       returned: { ...base, status: "returned", requestedAt: null, dueDate: at(-2 * HOUR) },
+      // B5: the owner left; no reminders to anyone.
+      ownerLeft: { ...base, status: "ownerLeft", ownerPhone: "", requestedAt: null, dueDate: at(-2 * HOUR) },
+      ownerLeftDueSoon: { ...base, status: "ownerLeft", ownerPhone: "", requestedAt: null, dueDate: at(36 * HOUR) },
     };
     await Promise.all(Object.entries(loans).map(([id, l]) => db.collection(COL.loans).doc(`m_${id}`).set(l)));
 
@@ -129,6 +133,7 @@ describe("dailyMaintenance (handler invoked directly)", () => {
       "m_overdueNonApp:owner",
     ]);
     expect(overdue.find((s) => s.message.data?.role === "owner")?.uids).toEqual([asha.uid]);
+    expect(sent.filter((s) => String(s.message.data?.loanId).startsWith("m_ownerLeft"))).toEqual([]);
 
     // Running again the same day doesn't expire anything new.
     sent.length = 0;
@@ -146,7 +151,42 @@ describe("onItemWritten: copy deleted", () => {
       return l?.status === "cancelled" ? l : null;
     }, "request cancelled after the copy was deleted");
     expect(loan.updatedAt.toMillis()).toBeGreaterThan(Date.now() - 60_000);
+    expect(loan.closedReason).toBe("copyRemoved");
     const push = await waitFor(async () => (await pushesTo(ravi.uid)).find((p) => p.data?.type === "itemRemoved"), "itemRemoved push");
     expect(push).toMatchObject({ title: "Request cancelled", body: "Asha Rao removed The Hobbit.", data: { loanId } });
+  });
+});
+
+describe("onItemWritten: late delete trigger (QA B5)", () => {
+  const deps = (): Deps => ({
+    db,
+    auth: adminAuth,
+    now: () => new Date(),
+    fetch: vi.fn() as unknown as Deps["fetch"],
+    deleteUserFiles: async () => undefined,
+    push: async (uids) => ({ uids, tokenCount: 0, outcome: "recorded" }),
+  });
+  const request = async (itemId: string) => {
+    const now = Timestamp.now();
+    const ref = await db.collection(COL.loans).add({
+      itemId, workId: WORK.id, ownerId: asha.uid, ownerName: "Asha Rao", ownerPhone: asha.phone,
+      borrowerUid: ravi.uid, borrowerName: "Ravi Menon", borrowerPhone: ravi.phone, title: "The Hobbit",
+      coverUrl: null, status: "requested", message: null, dueDate: null, requestedAt: now,
+      startedAt: null, returnMarkedAt: null, returnedAt: null, updatedAt: now,
+    } satisfies LoanDoc);
+    return ref.id;
+  };
+
+  it("leaves the requests alone when the copy exists again under the same id", async () => {
+    // The copy exists (written again after the delete, as the emulator seed does): kept.
+    const itemId = await addItem(asha.uid);
+    const again = await request(itemId);
+    await cancelRequestsForDeletedItem(deps(), itemId);
+    expect((await getDoc<LoanDoc>(COL.loans, again))?.status).toBe("requested");
+
+    // The copy is gone: cancelled.
+    const gone = await request("gone-item");
+    await cancelRequestsForDeletedItem(deps(), "gone-item");
+    expect((await getDoc<LoanDoc>(COL.loans, gone))?.status).toBe("cancelled");
   });
 });

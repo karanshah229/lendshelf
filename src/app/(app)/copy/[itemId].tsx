@@ -163,7 +163,7 @@ export default function CopyScreen() {
                 </View>
               ) : null}
               <View className="flex-row flex-wrap items-center gap-2 pt-1">
-                <StatusBadge status={state.status} />
+                <StatusBadge status={state.status} owner={state.role === 'owner'} />
                 <View className="flex-row items-center">
                   <Text className="text-xs font-medium text-muted-foreground">Book page</Text>
                   <Icon as={ChevronRight} size={14} className="text-muted-foreground" />

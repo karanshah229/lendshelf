@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
-import { BookPlus, Globe, Heart, Search, Users, X } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { BookPlus, Globe, Heart, Search, UserPlus, Users, X } from 'lucide-react-native';
+import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
+import { TextInput, View } from 'react-native';
 
 import { BookRow } from '@/components/book-row';
 import { EmptyState, LoadErrorState } from '@/components/empty-state';
@@ -13,14 +13,27 @@ import { Card } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
-import { useUid } from '@/hooks/use-auth';
+import { useMyProfile, useUid } from '@/hooks/use-auth';
+import { useMyItems } from '@/hooks/use-items';
 import { useLinks } from '@/hooks/use-links';
-import { searchCopies } from '@/lib/search';
+import { HAS_ADDRESS_BOOK } from '@/lib/contacts';
+import { searchBooks } from '@/lib/search';
+import { useContactsStore } from '@/stores/contacts';
+import { useDismissedStore } from '@/stores/dismissed';
 
 import { rankCircleCopies, summarizeCircleCopies } from '@/features/book/circle-copies';
 import { CatalogueResults } from '@/features/discover/CatalogueResults';
 import { DiscoverHome } from '@/features/discover/DiscoverHome';
 import { CATALOGUE_MIN_LENGTH } from '@/features/discover/use-catalogue-search';
+import { openContactsSettings } from '@/features/contacts/use-auto-resync';
+import { firstRunCase, setupCopy } from '@/features/first-run/first-run';
+import { setupCardState } from '@/features/home/home';
+import { useHomeSearchFocus } from '@/features/home/search-focus';
+import { useInvite } from '@/features/invite/use-invite';
+import { HomeNeedsYou } from '@/features/home/needs-you';
+import { SETUP_DISMISS_KEY, SetupCard } from '@/features/home/setup-card';
+import { StatusStrip } from '@/features/home/status-strip';
+import { useNeedsYou } from '@/features/loans/use-needs-you';
 import {
   useBorrowedItemIds,
   useCircleItems,
@@ -31,9 +44,26 @@ import { BookRowSkeletons, SectionHeader } from '@/features/shared/ui';
 import { wishlistAvailability } from '@/features/wishlist/availability';
 import { AvailabilityLine } from '@/features/wishlist/AvailabilityLine';
 
-/** Discover tab (SPEC §6): search your circle's books, or the catalogue when nothing matches. */
-export default function DiscoverScreen() {
+/**
+ * Home (UX §D4, C7): search, then Needs you (at most 2 cards + "See all n in Loans"), the status
+ * strip, the setup card (hidden while Needs you has cards) and the discovery feed. Search covers
+ * your circle's books, or the catalogue when nothing matches.
+ */
+export default function HomeScreen() {
   const uid = useUid();
+  const { cards, ledger, now, loading: loansLoading } = useNeedsYou();
+  const { profile } = useMyProfile();
+  const { items: myItems, loading: myItemsLoading } = useMyItems();
+  const setupDismissed = useDismissedStore((s) => s.keys.includes(SETUP_DISMISS_KEY));
+  const contactsPermission = useContactsStore((s) => s.permission);
+  const syncError = useContactsStore((s) => s.syncError);
+  const invite = useInvite();
+  const searchRef = useRef<ComponentRef<typeof TextInput>>(null);
+  // "Find a book" from Loans' empty state lands here with the cursor in search (E2a ii).
+  const focusToken = useHomeSearchFocus((s) => s.token);
+  useEffect(() => {
+    if (focusToken) setTimeout(() => searchRef.current?.focus(), 50);
+  }, [focusToken]);
   const [q, setQ] = useState('');
   const [showCatalogue, setShowCatalogue] = useState(false);
   const { links, loading: linksLoading } = useLinks();
@@ -45,7 +75,8 @@ export default function DiscoverScreen() {
   const searching = q.trim().length > 0;
   const results = useMemo(() => {
     if (!searching) return [];
-    return searchCopies(items, q).map((g) => {
+    // Copies of one book filed under different catalogue records are one row ("2 editions").
+    return searchBooks(items, q).map((g) => {
       const ranked = rankCircleCopies(g.copies, {
         uid,
         requestedItemIds,
@@ -67,6 +98,37 @@ export default function DiscoverScreen() {
     if (!text.trim()) setShowCatalogue(false);
   };
 
+  const setup =
+    linksLoading || myItemsLoading || loansLoading
+      ? null
+      : setupCardState({
+          hasPeople: links.length > 0,
+          hasBooks: myItems.length > 0,
+          hasPickup: !!profile?.pickupNote?.trim(),
+          dismissed: setupDismissed,
+          needsYouCount: cards.length,
+        });
+  // E2a: nobody found yet (i), people found (ii), or contacts off (iii).
+  const firstRun = firstRunCase({
+    hasAddressBook: HAS_ADDRESS_BOOK,
+    permission: contactsPermission,
+    peopleCount: links.length,
+  });
+  const setupText = setupCopy({
+    case: firstRun,
+    permission: contactsPermission,
+    syncFailed: !!syncError,
+  });
+  const setupCard = setup ? (
+    <SetupCard
+      state={setup}
+      copy={setupText}
+      friendNames={links.map((l) => l.displayName)}
+      profileName={profile?.name ?? ''}
+      pickupNote={profile?.pickupNote ?? null}
+    />
+  ) : null;
+
   const catalogueVisible =
     searching &&
     q.trim().length >= CATALOGUE_MIN_LENGTH &&
@@ -78,15 +140,16 @@ export default function DiscoverScreen() {
       header={
         <ScreenHeader
           large
-          title="Discover"
-          subtitle="Books shared by people you know"
+          title="Home"
+          className="pb-1"
           right={
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-full"
+              className="h-11 w-11 rounded-full"
               onPress={() => router.push('/wishlist')}
               accessibilityLabel="Wishlist"
+              hitSlop={4}
             >
               <Icon as={Heart} size={20} />
             </Button>
@@ -95,17 +158,21 @@ export default function DiscoverScreen() {
       }
     >
       <View className="w-full max-w-2xl self-center">
-        <View className="relative mb-6 justify-center">
+        <View className="relative mb-4 justify-center">
           <Icon as={Search} size={18} className="absolute left-3 z-10 text-muted-foreground" />
           <Input
+            // The ui Input types its ref as the component, not the instance: hand it over untyped.
+            ref={(el: unknown) => {
+              searchRef.current = el as ComponentRef<typeof TextInput> | null;
+            }}
             value={q}
             onChangeText={onChangeQuery}
-            placeholder="Search by title or author"
+            placeholder="Does anyone have…?"
             className="h-11 pl-10 pr-10"
             returnKeyType="search"
             autoCorrect={false}
             autoCapitalize="none"
-            accessibilityLabel="Search books"
+            accessibilityLabel="Does anyone have…? Search by title or author"
           />
           {searching ? (
             <Button
@@ -119,6 +186,21 @@ export default function DiscoverScreen() {
             </Button>
           ) : null}
         </View>
+
+        {/* Reading order (F8): Needs you → status strip → setup card → feed. */}
+        <HomeNeedsYou cards={cards} hidden={searching} />
+        {searching ? null : (
+          <StatusStrip
+            outWithFriends={ledger.outWithFriends}
+            withYou={ledger.withYou}
+            now={now}
+            className={cards.length ? 'mt-1' : undefined}
+          />
+        )}
+        {/* Space before the feed only when the top section shows something. */}
+        {!searching && (cards.length || ledger.outWithFriends.length || ledger.withYou.length) ? (
+          <View className="h-6" />
+        ) : null}
 
         {searching ? (
           <View className="gap-8">
@@ -152,10 +234,19 @@ export default function DiscoverScreen() {
                         )
                       }
                       badge={
-                        summary.mineCount ? (
-                          <Badge variant="outline">
-                            <Text>You own it</Text>
-                          </Badge>
+                        summary.mineCount || group.workIds.length > 1 ? (
+                          <>
+                            {summary.mineCount ? (
+                              <Badge variant="outline">
+                                <Text>You own it</Text>
+                              </Badge>
+                            ) : null}
+                            {group.workIds.length > 1 ? (
+                              <Badge variant="secondary">
+                                <Text>{group.workIds.length} editions</Text>
+                              </Badge>
+                            ) : null}
+                          </>
                         ) : undefined
                       }
                     />
@@ -189,21 +280,33 @@ export default function DiscoverScreen() {
           </View>
         ) : linksLoading || loading ? (
           <BookRowSkeletons count={4} />
+        ) : links.length === 0 && setupCard ? (
+          setupCard
         ) : links.length === 0 ? (
+          // The setup card was dismissed or finished: same case copy, one primary (E2a).
           <EmptyState
             icon={Users}
-            title="No one here yet"
-            description="When people in your contacts join LendShelf, the books they share show up here. Meanwhile, search above to find books and build your wishlist."
+            title={setupText.title ?? 'No one here yet'}
+            description={setupText.body ?? undefined}
           >
-            <Button onPress={() => router.push('/contacts')}>
-              <Text>Sync contacts</Text>
-            </Button>
-            <Button variant="outline" onPress={() => router.push('/add')}>
-              <Text>Add your books</Text>
-            </Button>
+            {setupText.peopleAction === 'invite' ? (
+              <Button className="min-h-12" onPress={() => void invite()}>
+                <Icon as={UserPlus} size={16} className="text-primary-foreground" />
+                <Text>Invite friends</Text>
+              </Button>
+            ) : setupText.peopleAction === 'openSettings' ? (
+              <Button className="min-h-12" onPress={openContactsSettings}>
+                <Text>{setupText.peopleActionLabel}</Text>
+              </Button>
+            ) : (
+              <Button className="min-h-12" onPress={() => router.push('/contacts')}>
+                <Text>{setupText.peopleActionLabel}</Text>
+              </Button>
+            )}
           </EmptyState>
         ) : (
           <>
+            {setupCard ? <View className="pb-8">{setupCard}</View> : null}
             <DiscoverHome
               uid={uid}
               links={links}

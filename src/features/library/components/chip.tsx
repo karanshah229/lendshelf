@@ -34,9 +34,16 @@ export function Chip({
       disabled={disabled}
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected, disabled: !!disabled }}
-      accessibilityLabel={accessibilityLabel}
+      // The count stays in the label when a custom label is given ("Main shelf, private, 12").
+      accessibilityLabel={
+        accessibilityLabel !== undefined && count !== undefined
+          ? `${accessibilityLabel}, ${count}`
+          : accessibilityLabel
+      }
+      // 32 dp pill, 48 dp touch target (F8); min-h so it grows at large font sizes.
+      hitSlop={{ top: 8, bottom: 8 }}
       className={cn(
-        'h-8 flex-row items-center gap-1.5 rounded-full border px-3',
+        'min-h-8 flex-row items-center gap-1.5 rounded-full border px-3',
         selected
           ? 'border-primary bg-primary'
           : cn(

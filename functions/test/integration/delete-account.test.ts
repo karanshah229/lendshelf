@@ -9,8 +9,10 @@ import {
   createUser,
   db,
   ensureWork,
+  expectCode,
   getDoc,
   nextPhone,
+  pushesTo,
   WORK,
   type TestUser,
 } from "./helpers.js";
@@ -41,6 +43,7 @@ describe("deleteAccount", () => {
     // Zoya's stuff
     const priv = await addShelf(zoya.uid, "Private", false);
     const lentToApp = await addItem(zoya.uid);
+    const lentToAsha = await addItem(zoya.uid);
     const lentToUncle = await addItem(zoya.uid, { shelfId: priv });
     const requested = await addItem(zoya.uid);
     const now = Timestamp.now();
@@ -68,6 +71,11 @@ describe("deleteAccount", () => {
       itemId: lentToApp, borrowerName: "Ravi", borrowerPhone: ravi.phone,
     });
     const { loanId: toUncle } = await zoya.call<{ loanId: string }>("recordLoan", { itemId: lentToUncle, borrowerName: "Uncle" });
+    // Asha has Zoya's book and says she returned it (returnPending).
+    const { loanId: toAsha } = await zoya.call<{ loanId: string }>("recordLoan", {
+      itemId: lentToAsha, borrowerName: "Asha", borrowerPhone: asha.phone,
+    });
+    await asha.call("markReturned", { loanId: toAsha });
     const { loanId: ashaReq } = await asha.call<{ loanId: string }>("requestLoan", { itemId: requested });
     const ashaItem = await addItem(asha.uid);
     const ashaItem2 = await addItem(asha.uid);
@@ -98,14 +106,33 @@ describe("deleteAccount", () => {
     expect(files).toHaveLength(0);
     await expect(adminAuth.getUser(zoya.uid)).rejects.toMatchObject({ code: "auth/user-not-found" });
 
-    // Loans Zoya owned: closed and stripped of her phone; the non-app one is gone.
-    expect(await getDoc<LoanDoc>(COL.loans, toRavi)).toMatchObject({ status: "returned", ownerPhone: "", borrowerUid: ravi.uid });
+    // Loans Zoya owned: books still out become ownerLeft (name kept, phone blanked); the non-app one is gone.
+    expect(await getDoc<LoanDoc>(COL.loans, toRavi)).toMatchObject({
+      status: "ownerLeft", ownerName: "Zoya Khan", ownerPhone: "", borrowerUid: ravi.uid, returnedAt: null,
+    });
+    expect(await getDoc<LoanDoc>(COL.loans, toAsha)).toMatchObject({
+      status: "ownerLeft", ownerName: "Zoya Khan", ownerPhone: "", borrowerUid: asha.uid,
+    });
+    // Each borrower (both have Zoya saved) is told exactly once.
+    for (const [u, loanId] of [[ravi, toRavi], [asha, toAsha]] as const) {
+      const left = (await pushesTo(u.uid)).filter((p) => p.data.type === "ownerLeft");
+      expect(left).toHaveLength(1);
+      expect(left[0]).toMatchObject({
+        title: "Zoya Khan left LendShelf",
+        body: "If you still have The Hobbit, message them on WhatsApp if you still have their number.",
+        data: { type: "ownerLeft", loanId },
+      });
+    }
+    // No more actions on an ownerLeft loan.
+    await expectCode(ravi.call("markReturned", { loanId: toRavi }), "failed-precondition", /owner left/);
     expect(await getDoc(COL.loans, toUncle)).toBeUndefined();
     expect(await getDoc<LoanDoc>(COL.loans, ashaReq)).toMatchObject({ status: "cancelled", borrowerUid: asha.uid });
     // Loans Zoya borrowed: keep the name, drop the uid; open requests are cancelled.
     expect(await getDoc<LoanDoc>(COL.loans, borrowed)).toMatchObject({
       status: "active", borrowerUid: null, borrowerName: "Zoya Khan", ownerId: asha.uid,
     });
+    // QA B13: marked, so Asha sees "Zoya left LendShelf", not a hand-recorded loan.
+    expect((await getDoc<LoanDoc>(COL.loans, borrowed))?.borrowerLeftAt).toBeTruthy();
     expect(await getDoc<LoanDoc>(COL.loans, pendingReq)).toMatchObject({ status: "cancelled", borrowerUid: null });
 
     // Asha can still close the loan Zoya borrowed.

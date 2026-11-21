@@ -53,3 +53,6 @@ storage-debug.log
 
 # test coverage
 coverage/
+
+# Real Firebase app configs (npm run firebase:config)
+/firebase-config/

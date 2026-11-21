@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 
 import { BookCover } from '@/components/book-cover';
-import { StatusBadge } from '@/components/status-badge';
+import { StatusBadge, statusBadgeText } from '@/components/status-badge';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { itemStatus, type Item, type WithId } from '@/types/model';
@@ -22,12 +22,16 @@ export function CoverCard({
   borrowedByMe?: boolean;
   className?: string;
 }) {
+  const status = itemStatus(item, { requestedByMe, borrowedByMe });
   return (
     <Pressable
       onPress={() => router.push({ pathname: '/copy/[itemId]', params: { itemId: item.id } })}
       className={cn('gap-1.5 active:opacity-80', className)}
       accessibilityRole="button"
-      accessibilityLabel={subtitle ? `${item.title}, ${subtitle}` : item.title}
+      // The status is in words in the label, not only the badge colour (UX §F8).
+      accessibilityLabel={[item.title, subtitle, statusBadgeText(status, { compact: true })]
+        .filter(Boolean)
+        .join(', ')}
     >
       <BookCover uri={item.coverUrl} title={item.title} className="w-full" />
       <View className="gap-0.5">
@@ -41,7 +45,7 @@ export function CoverCard({
         ) : null}
       </View>
       <View className="flex-row">
-        <StatusBadge status={itemStatus(item, { requestedByMe, borrowedByMe })} compact />
+        <StatusBadge status={status} compact />
       </View>
     </Pressable>
   );

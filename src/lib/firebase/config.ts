@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 /** Firebase project used for local development against the Emulator Suite. */
@@ -26,17 +27,24 @@ export const EMULATOR_PORTS = {
   storage: 9199 + PORT_OFFSET,
 } as const;
 
+/** Build environment from app.config.ts (`APP_ENV`): emulator, dev or prod. */
+export const APP_ENV: string = Constants.expoConfig?.extra?.appEnv ?? 'emulator';
+
+const realWebConfig = Constants.expoConfig?.extra?.firebaseWeb as
+  | { apiKey: string; authDomain: string; projectId: string; storageBucket: string; appId: string }
+  | null
+  | undefined;
+
 /**
- * Web config. The web build exists only for development and demos against the emulators,
- * so a dummy API key is fine. Override via EXPO_PUBLIC_FIREBASE_* to point at a real project.
+ * Web SDK config. Dev/prod builds get the registered web app's config from app.config.ts
+ * (firebase-config/<env>/web.json); emulator builds use dummy values, which the emulators accept.
  */
-export const WEB_FIREBASE_CONFIG = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || 'demo-api-key',
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || `${DEMO_PROJECT_ID}.firebaseapp.com`,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || DEMO_PROJECT_ID,
-  storageBucket:
-    process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || `${DEMO_PROJECT_ID}.appspot.com`,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '1:000000000000:web:0000000000000000',
+export const WEB_FIREBASE_CONFIG = realWebConfig ?? {
+  apiKey: 'demo-api-key',
+  authDomain: `${DEMO_PROJECT_ID}.firebaseapp.com`,
+  projectId: DEMO_PROJECT_ID,
+  storageBucket: `${DEMO_PROJECT_ID}.appspot.com`,
+  appId: '1:000000000000:web:0000000000000000',
 };
 
 /** URL of the Auth emulator's REST endpoint listing pending SMS verification codes. */

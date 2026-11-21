@@ -62,7 +62,7 @@ export default function MyBooksScreen() {
   const subtitle =
     loading || itemsError
       ? undefined
-    : `${plural(items.length, 'book', 'books')} · ${plural(shelves.length, 'collection', 'collections')}`;
+      : `${plural(items.length, 'book', 'books')} · ${plural(shelves.length, 'collection', 'collections')}`;
 
   return (
     <Screen
@@ -180,13 +180,16 @@ export default function MyBooksScreen() {
 }
 
 function emptyTitle(filter: QuickFilter): string {
-  if (filter === 'lent') return 'Nothing lent out';
+  if (filter === 'lent') return 'Nothing out with friends';
+  if (filter === 'notLending') return 'Nothing set to Not lending';
   if (filter === 'hidden') return 'No hidden books';
   return 'This collection is empty';
 }
 
 function emptyDescription(filter: QuickFilter): string {
   if (filter === 'lent') return 'Books you lend to someone show up here with their due date.';
+  if (filter === 'notLending')
+    return 'People who have your number saved can see these books, but can’t ask to borrow them.';
   if (filter === 'hidden') return 'Hidden books are only visible to you.';
   return 'Add books to this collection, or move them here from a book’s page.';
 }

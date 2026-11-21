@@ -17,8 +17,9 @@ import { useSessionStore } from '@/stores/session';
 
 const DETAIL: Record<PushPermission, string> = {
   granted: 'Requests, returns and due-date reminders',
-  denied: 'Turned off in system settings. Tap to open them.',
-  undetermined: 'Get told about requests and due dates',
+  // E12: with push off, updates are only seen in the app.
+  denied: 'Notifications off. You’ll only see updates when you open the app. Tap to turn on.',
+  undetermined: 'Off · turn on to get told about requests and due dates',
   unsupported: 'Not available on this device',
 };
 

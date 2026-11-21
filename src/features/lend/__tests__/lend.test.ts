@@ -132,5 +132,9 @@ describe('lentMessage', () => {
     expect(lentMessage({ borrowerName: 'Gita', title: 'Dune', dueDate: null })).toContain(
       "Here's “Dune”"
     );
+    // Someone who isn't on the app is greeted without the name typed in (R21).
+    expect(lentMessage({ borrowerName: null, title: 'Dune', dueDate: null })).toMatch(
+      /^Hi! Here's/
+    );
   });
 });

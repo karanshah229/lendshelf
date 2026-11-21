@@ -1,5 +1,7 @@
 import { router } from 'expo-router';
 import {
+  ChevronDown,
+  ChevronUp,
   Eye,
   EyeOff,
   HandHeart,
@@ -23,6 +25,7 @@ import { formatIsbn } from '@/features/add/isbn';
 import { LANGUAGES, languageName, normaliseLanguageInput } from '@/features/add/languages';
 import { addCopies, type CopySettings } from '@/features/add/save';
 import type { AddCandidate } from '@/features/add/types';
+import { VISIBILITY_COPY } from '@/features/copy/visibility-copy';
 import { Chip } from '@/features/library/components/chip';
 import { useUid } from '@/hooks/use-auth';
 import { useMyShelves } from '@/hooks/use-shelves';
@@ -53,16 +56,18 @@ export interface ConfirmStepProps {
   onSaved(result: SavedResult): void;
 }
 
-const VISIBILITY: { value: Visibility; title: string; body: string; icon: LucideIcon }[] = [
-  {
-    value: 'lendable',
-    title: 'Lendable',
-    body: 'Friends can see it and ask to borrow it.',
-    icon: HandHeart,
-  },
-  { value: 'visible', title: 'Visible', body: 'Friends can see it, but can’t ask.', icon: Eye },
-  { value: 'hidden', title: 'Hidden', body: 'Only you can see it.', icon: EyeOff },
-];
+const VISIBILITY: { value: Visibility; title: string; body: string; icon: LucideIcon }[] = (
+  [
+    ['lendable', HandHeart],
+    ['visible', Eye],
+    ['hidden', EyeOff],
+  ] as const
+).map(([value, icon]) => ({
+  value,
+  title: VISIBILITY_COPY[value].label,
+  body: VISIBILITY_COPY[value].help,
+  icon,
+}));
 
 const FORMATS: { value: ItemFormat; label: string }[] = [
   { value: 'paperback', label: 'Paperback' },
@@ -87,6 +92,7 @@ export function ConfirmStep({
   const [shelfChoice, setShelfChoice] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<Visibility>(remembered?.visibility ?? 'lendable');
   const [format, setFormat] = useState<ItemFormat | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
   const [language, setLanguage] = useState<string | 'auto' | null>(
     batch ? 'auto' : (single?.language ?? null)
   );
@@ -215,38 +221,42 @@ export function ConfirmStep({
           </View>
         ) : null}
 
-        <Section title="Collection">
-          {shelvesLoading ? (
-            <ActivityIndicator className="self-start" />
-          ) : (
-            <View className="flex-row flex-wrap gap-2">
-              {shelves.map((s) => (
+        {/* E8: the collection is only asked when there's more than one (QA friction). */}
+        {shelvesLoading || shelves.length > 1 ? (
+          <Section title="Collection">
+            {shelvesLoading ? (
+              <ActivityIndicator className="self-start" />
+            ) : (
+              <View className="flex-row flex-wrap gap-2">
+                {shelves.map((s) => (
+                  <Chip
+                    key={s.id}
+                    label={s.name}
+                    icon={s.isPublic ? undefined : Lock}
+                    selected={shelf?.id === s.id}
+                    onPress={() => setShelfChoice(s.id)}
+                  />
+                ))}
                 <Chip
-                  key={s.id}
-                  label={s.name}
-                  icon={s.isPublic ? undefined : Lock}
-                  selected={shelf?.id === s.id}
-                  onPress={() => setShelfChoice(s.id)}
+                  label="New"
+                  icon={Plus}
+                  className="border-dashed"
+                  onPress={() => router.push('/shelves')}
+                  accessibilityLabel="Create a collection"
                 />
-              ))}
-              <Chip
-                label="New"
-                icon={Plus}
-                className="border-dashed"
-                onPress={() => router.push('/shelves')}
-                accessibilityLabel="Create a collection"
-              />
-            </View>
-          )}
-          {shelf && !shelf.isPublic ? (
-            <View className="flex-row items-center gap-2">
-              <Icon as={Lock} size={13} className="text-muted-foreground" />
-              <Text className="flex-1 text-xs text-muted-foreground">
-                {shelf.name} is private, so only you will see {batch ? 'these books' : 'this book'}.
-              </Text>
-            </View>
-          ) : null}
-        </Section>
+              </View>
+            )}
+            {shelf && !shelf.isPublic ? (
+              <View className="flex-row items-center gap-2">
+                <Icon as={Lock} size={13} className="text-muted-foreground" />
+                <Text className="flex-1 text-xs text-muted-foreground">
+                  {shelf.name} is private, so only you will see{' '}
+                  {batch ? 'these books' : 'this book'}.
+                </Text>
+              </View>
+            ) : null}
+          </Section>
+        ) : null}
 
         <Section title="Who can see it">
           <View className="gap-2">
@@ -286,69 +296,88 @@ export function ConfirmStep({
           </View>
         </Section>
 
-        <Section title="Format" hint="Optional">
-          <View className="flex-row flex-wrap gap-2">
-            {FORMATS.map((f) => (
-              <Chip
-                key={f.value}
-                label={f.label}
-                selected={format === f.value}
-                onPress={() => setFormat(format === f.value ? null : f.value)}
-              />
-            ))}
-          </View>
-        </Section>
+        <Pressable
+          onPress={() => setShowDetails((v) => !v)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showDetails }}
+          className="min-h-11 flex-row items-center gap-2"
+        >
+          <Icon
+            as={showDetails ? ChevronUp : ChevronDown}
+            size={16}
+            className="text-muted-foreground"
+          />
+          <Text className="text-sm font-medium text-muted-foreground">
+            {showDetails ? 'Fewer details' : 'Format and language (optional)'}
+          </Text>
+        </Pressable>
+        {showDetails ? (
+          <>
+            <Section title="Format" hint="Optional">
+              <View className="flex-row flex-wrap gap-2">
+                {FORMATS.map((f) => (
+                  <Chip
+                    key={f.value}
+                    label={f.label}
+                    selected={format === f.value}
+                    onPress={() => setFormat(format === f.value ? null : f.value)}
+                  />
+                ))}
+              </View>
+            </Section>
 
-        <Section title="Language" hint="Optional">
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerClassName="gap-2"
-            className="-mx-4"
-            contentContainerStyle={{ paddingHorizontal: 16 }}
-            keyboardShouldPersistTaps="handled"
-          >
-            {batch ? (
-              <Chip
-                label="As detected"
-                selected={language === 'auto'}
-                onPress={() => {
-                  setLanguage('auto');
-                  setOtherLanguage(null);
-                }}
-              />
-            ) : null}
-            {languageChips.map((l) => (
-              <Chip
-                key={l.code}
-                label={l.name}
-                selected={language === l.code && otherLanguage === null}
-                onPress={() => {
-                  setOtherLanguage(null);
-                  setLanguage(language === l.code ? (batch ? 'auto' : null) : l.code);
-                }}
-              />
-            ))}
-            <Chip
-              label="Other…"
-              selected={otherLanguage !== null}
-              onPress={() => setOtherLanguage(otherLanguage === null ? '' : null)}
-            />
-          </ScrollView>
-          {otherLanguage !== null ? (
-            <Input
-              value={otherLanguage}
-              onChangeText={(t) => {
-                setOtherLanguage(t);
-                setLanguage(normaliseLanguageInput(t) ?? (batch ? 'auto' : null));
-              }}
-              placeholder="e.g. Konkani"
-              maxLength={20}
-              autoFocus
-              autoCapitalize="words"
-            />
-          ) : null}
-        </Section>
+            <Section title="Language" hint="Optional">
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerClassName="gap-2"
+                className="-mx-4"
+                contentContainerStyle={{ paddingHorizontal: 16 }}
+                keyboardShouldPersistTaps="handled"
+              >
+                {batch ? (
+                  <Chip
+                    label="As detected"
+                    selected={language === 'auto'}
+                    onPress={() => {
+                      setLanguage('auto');
+                      setOtherLanguage(null);
+                    }}
+                  />
+                ) : null}
+                {languageChips.map((l) => (
+                  <Chip
+                    key={l.code}
+                    label={l.name}
+                    selected={language === l.code && otherLanguage === null}
+                    onPress={() => {
+                      setOtherLanguage(null);
+                      setLanguage(language === l.code ? (batch ? 'auto' : null) : l.code);
+                    }}
+                  />
+                ))}
+                <Chip
+                  label="Other…"
+                  selected={otherLanguage !== null}
+                  onPress={() => setOtherLanguage(otherLanguage === null ? '' : null)}
+                />
+              </ScrollView>
+              {otherLanguage !== null ? (
+                <Input
+                  value={otherLanguage}
+                  onChangeText={(t) => {
+                    setOtherLanguage(t);
+                    setLanguage(normaliseLanguageInput(t) ?? (batch ? 'auto' : null));
+                  }}
+                  placeholder="e.g. Konkani"
+                  maxLength={20}
+                  autoFocus
+                  autoCapitalize="words"
+                />
+              ) : null}
+            </Section>
+          </>
+        ) : null}
       </ScrollView>
 
       <View

@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "demo-lendshelf"
+    "default": "demo-lendshelf",
+    "dev": "lendshelf-dev",
+    "prod": "lendshelf-prod"
   }
 }

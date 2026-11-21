@@ -9,7 +9,10 @@ import { cn } from '@/lib/utils';
 
 export function SectionLabel({ children }: { children: string }) {
   return (
-    <Text className="px-1 pb-2 pt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <Text
+      className="px-1 pb-2 pt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+      role="heading"
+    >
       {children}
     </Text>
   );

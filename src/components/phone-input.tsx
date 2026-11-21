@@ -103,7 +103,7 @@ export function PhoneInput({
         autoFocus={autoFocus}
         editable={editable}
         onSubmitEditing={onSubmitEditing}
-        returnKeyType="next"
+        returnKeyType="go"
         aria-invalid={invalid}
         accessibilityLabel="Phone number"
       />

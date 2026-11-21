@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
 import { collection, db, doc, onAuthStateChanged, onSnapshot, query, where } from '@/lib/firebase';
-import { syncContactsNow } from '@/lib/sync-contacts';
+import { useContactsAutoResync } from '@/features/contacts/use-auto-resync';
 import { useContactsStore } from '@/stores/contacts';
 import { useProfilesStore } from '@/stores/profiles';
 import { selectStatus, useSessionStore } from '@/stores/session';
@@ -9,7 +9,8 @@ import { COLLECTIONS, fromQuerySnap, fromSnap, type Link, type Profile } from '@
 
 /**
  * Keeps the session store in sync with Firebase: auth state, my profile, my links.
- * Also re-syncs contacts once per sign-in when onboarding is done. Renders nothing.
+ * Also re-syncs contacts silently on open and on foreground, at most once a day and native
+ * only (UX §E13). Renders nothing.
  */
 export function SessionBootstrap() {
   useEffect(
@@ -48,10 +49,7 @@ export function SessionBootstrap() {
   }, [uid]);
 
   const ready = useSessionStore((s) => selectStatus(s) === 'ready');
-  const onboarded = useContactsStore((s) => (uid ? !!s.onboarded[uid] : false));
-  useEffect(() => {
-    if (ready && onboarded) syncContactsNow().catch(() => {});
-  }, [ready, onboarded, uid]);
+  useContactsAutoResync(uid, ready);
 
   return null;
 }

@@ -146,7 +146,8 @@ export function SearchPanel({
 
 const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-function ResultRow({
+/** One catalogue result (also used by the manual panel's "Is it one of these?"). */
+export function ResultRow({
   result,
   owned,
   resolving,

@@ -4,6 +4,7 @@
  */
 import { formatShortDate, dueState, type DateInput } from '@/lib/dates';
 import { phoneDigits } from '@/lib/phone';
+import { shortName } from '@/features/shared/people';
 
 /** wa.me link for an E.164 number, optionally with a prefilled message. */
 export function waLink(phoneE164: string, text?: string): string {
@@ -11,11 +12,23 @@ export function waLink(phoneE164: string, text?: string): string {
   return text ? `${base}?text=${encodeURIComponent(text)}` : base;
 }
 
-const firstName = (name: string) => name.trim().split(/\s+/)[0] || name.trim();
+/**
+ * Opening of every outgoing message (UX F6, C1): the person's *profile* first name
+ * ("Hi Ravi!"), else "Hi!". Never pass the name saved in my contacts: a contact saved as
+ * "Dr. Mehta" is still greeted by the name they chose on LendShelf.
+ */
+export function greeting(profileName: string | null | undefined): string {
+  // First word of the profile name, but a profile name that starts with a title stays whole
+  // ("Dr. Mehta" → "Hi Dr. Mehta!", never "Hi Dr.!").
+  const first = typeof profileName === 'string' ? shortName(profileName) : '';
+  return first ? `Hi ${first}!` : 'Hi!';
+}
+
 const quoted = (title: string) => `“${title.trim()}”`;
 
 export interface AskMessageInput {
-  ownerName: string;
+  /** The owner's profile name (not their saved contact name); null greets with "Hi!". */
+  ownerName: string | null | undefined;
   title: string;
   /** Optional note the borrower typed with the request. */
   note?: string | null;
@@ -24,7 +37,7 @@ export interface AskMessageInput {
 /** Borrower → owner, sent after creating a borrow request. */
 export function askMessage({ ownerName, title, note }: AskMessageInput): string {
   const lines = [
-    `Hi ${firstName(ownerName)}! Could I borrow ${quoted(title)}? I've sent a request on LendShelf.`,
+    `${greeting(ownerName)} Could I borrow ${quoted(title)}? I've sent a request on LendShelf.`,
   ];
   const trimmed = note?.trim();
   if (trimmed) lines.push('', trimmed);
@@ -32,7 +45,8 @@ export function askMessage({ ownerName, title, note }: AskMessageInput): string 
 }
 
 export interface NudgeMessageInput {
-  borrowerName: string;
+  /** The borrower's profile name (not a saved contact name); null greets with "Hi!". */
+  borrowerName: string | null | undefined;
   title: string;
   dueDate: DateInput | null;
   now?: Date;
@@ -45,7 +59,7 @@ export function nudgeMessage({
   dueDate,
   now = new Date(),
 }: NudgeMessageInput): string {
-  const hi = `Hi ${firstName(borrowerName)}!`;
+  const hi = greeting(borrowerName);
   if (!dueDate) {
     return `${hi} Hope you're enjoying ${quoted(title)}. Let me know when you're done with it.`;
   }
@@ -61,13 +75,14 @@ export function nudgeMessage({
 }
 
 export interface ReturnMessageInput {
-  ownerName: string;
+  /** The owner's profile name (not their saved contact name); null greets with "Hi!". */
+  ownerName: string | null | undefined;
   title: string;
 }
 
 /** Borrower → owner, when they're done and want to hand the book back. */
 export function returnMessage({ ownerName, title }: ReturnMessageInput): string {
-  return `Hi ${firstName(ownerName)}! I've finished ${quoted(title)}, thank you! When's a good time to drop it back?`;
+  return `${greeting(ownerName)} I've finished ${quoted(title)}, thank you! When's a good time to drop it back?`;
 }
 
 /** Generic opener about a copy (the "Message on WhatsApp" button). */
@@ -75,8 +90,24 @@ export function aboutBookMessage({
   ownerName,
   title,
 }: {
-  ownerName: string;
+  /** The owner's profile name (not their saved contact name); null greets with "Hi!". */
+  ownerName: string | null | undefined;
   title: string;
 }): string {
-  return `Hi ${firstName(ownerName)}! I saw ${quoted(title)} on your LendShelf.`;
+  return `${greeting(ownerName)} I saw ${quoted(title)} on your LendShelf.`;
+}
+
+/**
+ * The profile name to greet a loan's borrower with. `profileName` (their current profile) wins;
+ * otherwise the loan's `borrowerName` only when the loan came from their own request (the server
+ * copied it from their profile). A name the owner typed when lending by hand is a saved
+ * nickname, so it greets with "Hi!".
+ */
+export function borrowerGreetName(
+  loan: { borrowerUid: string | null; borrowerName: string; requestedAt: unknown },
+  profileName?: string | null
+): string | null {
+  if (!loan.borrowerUid) return null;
+  if (profileName?.trim()) return profileName;
+  return loan.requestedAt ? loan.borrowerName : null;
 }

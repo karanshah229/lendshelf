@@ -3,7 +3,7 @@
  * Dates cross the wire as ISO strings.
  */
 import { callable } from '@/lib/firebase';
-import type { Work } from '@/types/model';
+import type { ConfirmReturnReason, DeclineReason, Work } from '@/types/model';
 
 // ---------- Profile & contacts ----------
 
@@ -19,6 +19,12 @@ export interface OkResponse {
 export interface SyncContactsRequest {
   /** E.164 numbers, at most 5000. */
   phones: string[];
+  /**
+   * Allow removing more than half of the existing links. Without it the server keeps them
+   * (shrink guard) and reports `skippedRemovals`. Send only for a deliberate "Sync now",
+   * never from an automatic re-sync.
+   */
+  replace?: boolean;
 }
 export interface SyncedLink {
   ownerId: string;
@@ -27,7 +33,10 @@ export interface SyncedLink {
   name: string | null;
 }
 export interface SyncContactsResponse {
+  /** The caller's links after the sync (matches, plus any the shrink guard kept). */
   links: SyncedLink[];
+  /** Links the shrink guard kept instead of removing; 0 normally. */
+  skippedRemovals: number;
 }
 
 // ---------- Books ----------
@@ -87,10 +96,18 @@ export interface RespondToRequestRequest {
   accept: boolean;
   /** ISO date; defaults to +21 days on the server. */
   dueDate?: string;
+  /** Decline only (optional). 'lentToSomeoneElse' also creates the borrower's back-watch. */
+  reason?: DeclineReason;
 }
 
 export interface LoanIdRequest {
   loanId: string;
+}
+
+export interface ConfirmReturnRequest {
+  loanId: string;
+  /** Default 'returned'. 'notCollected': owner, active loans only; no review prompt, watchers told "available again". */
+  reason?: ConfirmReturnReason;
 }
 
 export interface RecordLoanRequest {
@@ -143,7 +160,9 @@ export const api = {
   cancelRequest: callable<LoanIdRequest, OkResponse>('cancelRequest'),
   recordLoan: callable<RecordLoanRequest, RecordLoanResponse>('recordLoan'),
   markReturned: callable<LoanIdRequest, OkResponse>('markReturned'),
-  confirmReturn: callable<LoanIdRequest, OkResponse>('confirmReturn'),
+  confirmReturn: callable<ConfirmReturnRequest, OkResponse>('confirmReturn'),
+  /** Owner: "Not back yet", returnPending → active. */
+  markNotReturned: callable<LoanIdRequest, OkResponse>('markNotReturned'),
   updateDueDate: callable<UpdateDueDateRequest, OkResponse>('updateDueDate'),
   registerPushToken: callable<PushTokenRequest, OkResponse>('registerPushToken'),
   unregisterPushToken: callable<PushTokenRequest, OkResponse>('unregisterPushToken'),

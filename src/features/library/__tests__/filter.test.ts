@@ -54,6 +54,11 @@ describe('filterCopies', () => {
       '4',
     ]);
     expect(ids(filterCopies(items, { shelfId: 's2', filter: 'hidden', query: '' }))).toEqual(['3']);
+    const withNotLending = [...items, copy('5', { visibility: 'visible' })];
+    expect(
+      ids(filterCopies(withNotLending, { shelfId: ALL_SHELVES, filter: 'notLending', query: '' }))
+    ).toEqual(['5']);
+    expect(countCopies(withNotLending, ALL_SHELVES).notLending).toBe(1);
   });
 
   it('searches title and author, best match first', () => {
@@ -72,6 +77,7 @@ describe('countCopies', () => {
     expect(countCopies(items, ALL_SHELVES)).toEqual({
       all: 4,
       lent: 2,
+      notLending: 0,
       hidden: 1,
       byShelf: { s1: 2, s2: 2 },
     });
@@ -87,24 +93,27 @@ describe('ownerStatus', () => {
         true,
         NOW
       )
-    ).toEqual({ kind: 'lent', label: 'Lent · back 12 Dec', short: 'Back 12 Dec', tone: 'lent' });
+    ).toEqual({ kind: 'lent', label: 'Out · back 12 Dec', short: 'Out · back 12 Dec', tone: 'lent' });
     expect(
       ownerStatus(
         { loanState: 'lent', visibility: 'hidden', dueDate: new Date(2026, 10, 18) },
         true,
         NOW
       )
-    ).toMatchObject({ label: 'Lent · overdue 3 days', short: 'Overdue 3 days', tone: 'overdue' });
+    ).toMatchObject({ label: 'Out · overdue 3 days', short: 'Overdue 3 days', tone: 'overdue' });
     expect(
       ownerStatus({ loanState: 'lent', visibility: 'lendable', dueDate: null }, true, NOW)
-    ).toMatchObject({ label: 'Lent out' });
+    ).toMatchObject({ label: 'Out' });
   });
 
   it('shows hidden, private, visible-only and available copies', () => {
     const base = { loanState: 'available' as const, dueDate: null };
     expect(ownerStatus({ ...base, visibility: 'hidden' }, true).kind).toBe('hidden');
     expect(ownerStatus({ ...base, visibility: 'lendable' }, false).kind).toBe('private');
-    expect(ownerStatus({ ...base, visibility: 'visible' }, true).kind).toBe('visibleOnly');
+    expect(ownerStatus({ ...base, visibility: 'visible' }, true)).toMatchObject({
+      kind: 'visibleOnly',
+      label: 'Not lending',
+    });
     expect(ownerStatus({ ...base, visibility: 'lendable' }, true)).toMatchObject({
       kind: 'available',
       tone: 'success',

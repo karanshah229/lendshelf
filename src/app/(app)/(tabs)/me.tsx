@@ -14,11 +14,12 @@ import {
   RefreshCw,
   ShieldCheck,
   Sun,
+  UserPlus,
   Users,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
@@ -40,18 +41,23 @@ import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Text } from '@/components/ui/text';
 import { ToggleGroup, ToggleGroupIcon, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { newPeopleLine } from '@/features/contacts/resync';
+import { openContactsSettings } from '@/features/contacts/use-auto-resync';
+import { useManualSync } from '@/features/contacts/use-manual-sync';
 import { ExportDialog } from '@/features/export/export-dialog';
+import { meContactsDetail } from '@/features/first-run/first-run';
+import { useInvite } from '@/features/invite/use-invite';
 import { signOutAndCleanUp } from '@/features/me/account';
 import { DeleteAccountButton } from '@/features/me/delete-account-dialog';
 import { EditProfileDialog } from '@/features/me/edit-profile-dialog';
 import { NotificationsSection } from '@/features/me/notifications-section';
 import { Row, SectionLabel } from '@/features/me/rows';
+import { initials } from '@/features/shared/people';
 import { useAuth, useMyProfile } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { HAS_ADDRESS_BOOK } from '@/lib/contacts';
 import { timeAgo } from '@/lib/dates';
 import { formatPhone } from '@/lib/phone';
-import { syncContactsNow } from '@/lib/sync-contacts';
 import { toast, toastError } from '@/lib/toast';
 import { useContactsStore } from '@/stores/contacts';
 import type { ThemePreference } from '@/stores/theme';
@@ -59,14 +65,6 @@ import type { ThemePreference } from '@/stores/theme';
 const APP_VERSION = Constants.expoConfig?.version ?? '0.1.0';
 // Added by this change; typed routes regenerate when the dev server runs.
 const PRIVACY_HREF = '/privacy' as Href;
-
-function initials(name: string | undefined): string {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  return (
-    (parts[0]?.[0] ?? '') + (parts.length > 1 ? (parts.at(-1)?.[0] ?? '') : '')
-  ).toUpperCase();
-}
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
   { value: 'system', label: 'System', icon: Monitor },
@@ -81,24 +79,49 @@ export default function MeScreen() {
   const syncing = useContactsStore((s) => s.syncing);
   const linkCount = useContactsStore((s) => s.linkCount);
   const lastSyncedAt = useContactsStore((s) => s.lastSyncedAt);
+  const skippedRemovals = useContactsStore((s) => s.skippedRemovals);
+  const permission = useContactsStore((s) => s.permission);
   const manualCount = useContactsStore((s) => s.manualContacts.length);
   const [signingOut, setSigningOut] = useState(false);
   const [editing, setEditing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  /** The last manual sync's result, inline under Sync now (E13: "2 new: Zoya, Kabir"). */
+  const [syncLine, setSyncLine] = useState<string | null>(null);
+  const manualSync = useManualSync();
+  const invite = useInvite();
 
   const resync = async () => {
-    try {
-      const res = await syncContactsNow();
-      if (res.status !== 'synced') {
-        router.push('/contacts');
-        return;
-      }
-      const n = res.links.length;
-      toast.success(`Contacts synced · ${n} ${n === 1 ? 'person' : 'people'} on LendShelf`);
-    } catch (e) {
-      toastError(e, 'Couldn’t sync contacts.');
+    setSyncLine(null);
+    const res = await manualSync.sync();
+    if (res.status === 'error') {
+      setSyncLine(res.message);
+      toast.error(res.message);
+      return;
     }
+    if (res.status !== 'synced') {
+      router.push('/contacts');
+      return;
+    }
+    // Nothing was removed; the Sync anyway sheet asks what to do and reports the result.
+    if (res.skippedRemovals > 0) return;
+    const n = res.links.length;
+    const saved = useContactsStore.getState().nameByPhone;
+    const fresh = newPeopleLine(
+      res.newLinks.map((l) => saved[l.ownerPhone] ?? l.name ?? formatPhone(l.ownerPhone))
+    );
+    setSyncLine(fresh ?? `No one new · ${n} ${n === 1 ? 'person' : 'people'} on LendShelf`);
+    toast.success(`Contacts synced · ${n} ${n === 1 ? 'person' : 'people'} on LendShelf`);
   };
+
+  const contactsOff = HAS_ADDRESS_BOOK && permission === 'denied';
+  const contactsDetail = meContactsDetail({
+    hasAddressBook: HAS_ADDRESS_BOOK,
+    permission,
+    linkCount,
+    checkedAgo: lastSyncedAt ? timeAgo(lastSyncedAt) : null,
+    skippedRemovals,
+    manualCount,
+  });
 
   const doSignOut = async () => {
     setSigningOut(true);
@@ -109,10 +132,6 @@ export default function MeScreen() {
       setSigningOut(false);
     }
   };
-
-  const contactsDetail = lastSyncedAt
-    ? `${linkCount} ${linkCount === 1 ? 'person' : 'people'} on LendShelf · synced ${timeAgo(lastSyncedAt)}`
-    : 'Not synced yet';
 
   return (
     <Screen safeBottom={false} header={<ScreenHeader large title="Me" />}>
@@ -158,13 +177,17 @@ export default function MeScreen() {
             {profile?.pickupNote ? (
               <Text className="text-sm leading-5">{profile.pickupNote}</Text>
             ) : (
-              <Text
-                className="text-sm text-muted-foreground"
+              // A 48 dp touch target around the one-line text (F8).
+              <Pressable
                 onPress={() => setEditing(true)}
                 accessibilityRole="button"
+                hitSlop={{ top: 14, bottom: 14 }}
+                className="self-start active:opacity-70"
               >
-                Add where and when people can pick up books
-              </Text>
+                <Text className="text-sm text-muted-foreground">
+                  Add where and when people can pick up books
+                </Text>
+              </Pressable>
             )}
           </View>
         </View>
@@ -174,28 +197,34 @@ export default function MeScreen() {
       <SectionLabel>Contacts</SectionLabel>
       <Card className="gap-0 py-0">
         <Row
+          icon={UserPlus}
+          label="Invite friends"
+          detail="Share LendShelf on WhatsApp, with your number to save"
+          onPress={() => void invite()}
+        />
+        <Separator />
+        <Row
           icon={Users}
           label={HAS_ADDRESS_BOOK ? 'Contacts' : 'Your contacts'}
-          detail={
-            HAS_ADDRESS_BOOK
-              ? contactsDetail
-              : `${manualCount} added by hand · ${lastSyncedAt ? `${linkCount} on LendShelf` : 'not synced yet'}`
-          }
-          href="/contacts"
+          detail={contactsDetail}
+          // Contacts off: "Off · Turn on" opens Settings (E2a iii).
+          {...(contactsOff ? { onPress: openContactsSettings } : { href: '/contacts' as const })}
         />
         <Separator />
         <Row
           icon={RefreshCw}
           label={syncing ? 'Syncing…' : 'Sync now'}
           detail={
-            HAS_ADDRESS_BOOK
+            syncLine ??
+            (HAS_ADDRESS_BOOK
               ? 'Only numbers are checked; your address book is never stored'
-              : 'Web has no address book: add numbers under Your contacts'
+              : 'Web has no address book: add numbers under Your contacts')
           }
           onPress={syncing ? undefined : resync}
           right={syncing ? <ActivityIndicator size="small" /> : undefined}
         />
       </Card>
+      {manualSync.element}
 
       {/* Library */}
       <SectionLabel>Library</SectionLabel>
@@ -203,7 +232,7 @@ export default function MeScreen() {
         <Row
           icon={Heart}
           label="Wishlist"
-          detail="Books you’ll be told about when a contact adds them"
+          detail="Books you’ll be told about when a friend adds them"
           href="/wishlist"
         />
         <Separator />

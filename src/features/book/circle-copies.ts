@@ -2,6 +2,7 @@
  * Copies of a Book "in your circle": my own copies plus contacts' shared copies,
  * ranked so the most useful ones (available to borrow) come first.
  */
+import { bookKey } from '@/lib/search';
 import { itemStatus, type Item, type ItemStatus, type WithId } from '@/types/model';
 
 export type CircleItem = WithId<
@@ -12,6 +13,8 @@ export interface CircleCopy<T extends CircleItem = CircleItem> {
   item: T;
   isMine: boolean;
   status: ItemStatus;
+  /** Filed under another catalogue record of the same book (same title + first author). */
+  otherEdition?: boolean;
 }
 
 export interface RankOptions {
@@ -88,6 +91,29 @@ export function circleCopiesForWork<T extends CircleItem>(
     copies.filter((c) => c.workId === workId),
     options
   );
+}
+
+/**
+ * All copies of one Book in my circle, including copies filed under another catalogue record
+ * with the same normalised title and first author (marked `otherEdition`). The book's identity
+ * comes from `work` when it's loaded, plus the copies filed under `workId`.
+ */
+export function circleCopiesForBook<T extends CircleItem & { title: string; authors: string[] }>(
+  workId: string,
+  work: { title: string; authors: readonly string[] } | null | undefined,
+  copies: readonly T[],
+  options: RankOptions
+): { mine: CircleCopy<T>[]; others: CircleCopy<T>[] } {
+  const keys = new Set<string>();
+  if (work) keys.add(bookKey(work.title, work.authors));
+  for (const c of copies) if (c.workId === workId) keys.add(bookKey(c.title, c.authors));
+  const ranked = rankCircleCopies(
+    copies.filter((c) => c.workId === workId || keys.has(bookKey(c.title, c.authors))),
+    options
+  );
+  const mark = (c: CircleCopy<T>): CircleCopy<T> =>
+    c.item.workId === workId ? c : { ...c, otherEdition: true };
+  return { mine: ranked.mine.map(mark), others: ranked.others.map(mark) };
 }
 
 export interface CopySummary {

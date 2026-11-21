@@ -19,7 +19,19 @@ export type LoanStatus =
   | "expired"
   | "active"
   | "returnPending"
-  | "returned";
+  | "returned"
+  /** The owner deleted their account while the borrower had the book. Terminal: no reminders. */
+  | "ownerLeft";
+/**
+ * Why a request was declined. Optional when the owner declines; the server
+ * sets "lentToSomeoneElse" when an accept or `recordLoan` declines the others.
+ */
+export type DeclineReason = "readingIt" | "notLending" | "lentToSomeoneElse";
+/** Why a loan was closed without being returned (status "cancelled"). */
+/** Why a loan was closed without a return: never picked up, or the copy was deleted (requests). */
+export type ClosedReason = "notCollected" | "copyRemoved";
+/** `confirmReturn({ reason })`: "returned" (default) or "notCollected" (never picked up). */
+export type ConfirmReturnReason = "returned" | "notCollected";
 export type WatchType = "wishlist" | "back";
 
 export const VISIBILITIES: readonly Visibility[] = ["lendable", "visible", "hidden"];
@@ -31,7 +43,10 @@ export const LOAN_STATUSES: readonly LoanStatus[] = [
   "active",
   "returnPending",
   "returned",
+  "ownerLeft",
 ];
+export const DECLINE_REASONS: readonly DeclineReason[] = ["readingIt", "notLending", "lentToSomeoneElse"];
+export const CONFIRM_RETURN_REASONS: readonly ConfirmReturnReason[] = ["returned", "notCollected"];
 /** Loans that still involve the item (block deletion, block new loans). */
 export const OPEN_LOAN_STATUSES: readonly LoanStatus[] = ["requested", "active", "returnPending"];
 
@@ -176,6 +191,21 @@ export interface LoanDoc<T = Timestamp> {
   returnMarkedAt: T | null;
   returnedAt: T | null;
   updatedAt: T;
+  /** Only on "declined" loans, when a reason was given or set by the server. Absent on older loans. */
+  declineReason?: DeclineReason | null;
+  /** Only on loans closed without a return ("cancelled" + "notCollected"). */
+  closedReason?: ClosedReason | null;
+  /**
+   * Set by `markNotReturned` (owner: "Not back yet"); cleared when the borrower
+   * marks it returned again or the loan closes. Absent on older loans.
+   */
+  notBackYetAt?: T | null;
+  /** Set by `updateDueDate` when the owner last moved the due date. Absent on older loans. */
+  dueChangedAt?: T | null;
+  /** The due date before the first `updateDueDate` (for the timeline). Absent until then. */
+  firstDueDate?: T | null;
+  /** Set when the borrower deleted their account (`borrowerUid` is then null). */
+  borrowerLeftAt?: T | null;
 }
 
 /** `reviews/{workId}_{uid}`. */

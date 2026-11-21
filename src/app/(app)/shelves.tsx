@@ -10,17 +10,27 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
+import { useLoanPeople } from '@/features/loans/use-loan-people';
 import {
   createShelf,
+  declinePendingRequests,
   deleteShelf,
   renameShelf,
   saveSortOrders,
   setShelfPublic,
 } from '@/features/shelves/actions';
+import { PendingRequestsSheet } from '@/features/shelves/components/pending-requests-sheet';
 import { DeleteShelfDialog, ShelfFormDialog } from '@/features/shelves/components/shelf-dialogs';
 import { defaultMoveTarget, moveShelf, nextSortOrder } from '@/features/shelves/logic';
+import {
+  makePrivateSheet,
+  requestersToDecline,
+  requestsOnItems,
+  type SheetCopy,
+} from '@/features/shelves/pending-requests';
 import { useUid } from '@/hooks/use-auth';
 import { useMyItems } from '@/hooks/use-items';
+import { useMyLoans } from '@/hooks/use-loans';
 import { useMyShelves } from '@/hooks/use-shelves';
 import { toast, toastError } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -42,6 +52,14 @@ export default function ShelvesScreen() {
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
   const [dialogKey, setDialogKey] = useState(0);
   const [busy, setBusy] = useState<Record<string, 'visibility' | 'order' | undefined>>({});
+  const { incomingRequests } = useMyLoans();
+  const people = useLoanPeople(incomingRequests);
+  /** Making a collection private while some of its books have pending requests (E9). */
+  const [makingPrivate, setMakingPrivate] = useState<{
+    shelf: WithId<Shelf>;
+    loanIds: string[];
+    copy: SheetCopy;
+  } | null>(null);
 
   const counts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -57,18 +75,43 @@ export default function ShelvesScreen() {
     if (!o) setDialog({ kind: 'none' });
   };
 
-  const togglePublic = async (shelf: WithId<Shelf>, isPublic: boolean) => {
+  /** Throws (after a toast) so the confirm sheet can stay open to retry. */
+  const applyPublic = async (shelf: WithId<Shelf>, isPublic: boolean) => {
     setBusy((b) => ({ ...b, [shelf.id]: 'visibility' }));
     try {
       await setShelfPublic(shelf.id, isPublic);
       toast.success(
-        isPublic ? `${shelf.name} is shared with your contacts` : `${shelf.name} is now private`
+        isPublic
+          ? `${shelf.name} is shared with people who have your number saved`
+          : `${shelf.name} is now private`
       );
     } catch (e) {
       toastError(e);
+      throw e;
     } finally {
       setBusy((b) => ({ ...b, [shelf.id]: undefined }));
     }
+  };
+
+  const togglePublic = (shelf: WithId<Shelf>, isPublic: boolean) => {
+    if (!isPublic) {
+      // Copies that people can see now (not hidden) and that someone asked for.
+      const shared = items.filter((i) => i.shelfId === shelf.id && i.visibility !== 'hidden');
+      const requests = requestsOnItems(
+        incomingRequests,
+        shared.map((i) => i.id)
+      );
+      if (requests.length) {
+        const declines = requestersToDecline(requests, people.name);
+        setMakingPrivate({
+          shelf,
+          loanIds: declines.map((d) => d.loanId),
+          copy: makePrivateSheet(shelf.name, shared.length, declines),
+        });
+        return;
+      }
+    }
+    void applyPublic(shelf, isPublic).catch(() => undefined);
   };
 
   const move = async (shelf: WithId<Shelf>, direction: 'up' | 'down') => {
@@ -121,7 +164,7 @@ export default function ShelvesScreen() {
                 last={index === shelves.length - 1}
                 onlyOne={shelves.length === 1}
                 busy={busy[shelf.id]}
-                onTogglePublic={(v) => void togglePublic(shelf, v)}
+                onTogglePublic={(v) => togglePublic(shelf, v)}
                 onMove={(d) => void move(shelf, d)}
                 onRename={() => open({ kind: 'rename', shelf })}
                 onDelete={() => open({ kind: 'delete', shelf })}
@@ -168,6 +211,22 @@ export default function ShelvesScreen() {
           }}
         />
       ) : null}
+
+      <PendingRequestsSheet
+        copy={makingPrivate?.copy ?? null}
+        onClose={() => setMakingPrivate(null)}
+        onConfirm={async () => {
+          if (!makingPrivate) return;
+          try {
+            // Decline first (`notLending`), then make it private: nobody gets "Copy not found".
+            await declinePendingRequests(makingPrivate.loanIds);
+          } catch (e) {
+            toastError(e);
+            throw e;
+          }
+          await applyPublic(makingPrivate.shelf, false);
+        }}
+      />
 
       {dialog.kind === 'delete' ? (
         <DeleteShelfDialog

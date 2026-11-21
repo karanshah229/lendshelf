@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { rankCatalogueResults } from '@/lib/search';
+
 import { searchCatalogue, type CatalogueResult } from '@/features/discover/catalogue';
 
 export type CatalogueSearchState =
@@ -26,7 +28,12 @@ export function useCatalogueSearch(
     const controller = new AbortController();
     const timer = setTimeout(() => {
       searchCatalogue(q, controller.signal)
-        .then((results) => setResult({ key: q, value: { status: 'done', results } }))
+        .then((results) =>
+          setResult({
+            key: q,
+            value: { status: 'done', results: rankCatalogueResults(results, q) },
+          })
+        )
         .catch((e: unknown) => {
           if ((e as { name?: string })?.name === 'AbortError') return;
           setResult({ key: q, value: { status: 'error' } });

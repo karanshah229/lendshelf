@@ -1,4 +1,4 @@
-import type { DocumentReference, Firestore, Transaction } from "firebase-admin/firestore";
+import type { DocumentReference, Firestore, QuerySnapshot, Timestamp, Transaction } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { z } from "zod";
 import { ts, type Caller, type Deps } from "../lib/context.js";
@@ -10,6 +10,8 @@ import type { PushMessage } from "../lib/push.js";
 import {
   COL,
   linkId,
+  watchId,
+  type DeclineReason,
   type ItemDoc,
   type LoanDoc,
   type PhoneIndexDoc,
@@ -29,8 +31,14 @@ export const respondToRequestSchema = z.object({
   loanId: id,
   accept: z.boolean(),
   dueDate: isoDate.nullable().optional(),
+  /** Decline only; ignored when accepting. */
+  reason: z.enum(["readingIt", "notLending", "lentToSomeoneElse"]).nullable().optional(),
 });
 export const loanIdSchema = z.object({ loanId: id });
+export const confirmReturnSchema = z.object({
+  loanId: id,
+  reason: z.enum(["returned", "notCollected"]).nullable().optional(),
+});
 export const recordLoanSchema = z.object({
   itemId: id,
   borrowerName: z
@@ -63,6 +71,53 @@ async function person(tx: Transaction, db: Firestore, uid: string): Promise<{ na
   const name = (p.data() as ProfileDoc | undefined)?.name ?? "Someone";
   const phone = (u.data() as UserDoc | undefined)?.phone || null;
   return { name, phone };
+}
+
+/** True when `viewerId` has `ownerId` saved (links/{viewer}_{owner}). */
+async function hasSaved(db: Firestore, viewerId: string, ownerId: string): Promise<boolean> {
+  return (await db.collection(COL.links).doc(linkId(viewerId, ownerId)).get()).exists;
+}
+
+/**
+ * "Notify me when it's back" for a borrower whose request was declined because
+ * the copy went to someone else. Same id and shape as the client's watch.
+ */
+function setBackWatch(tx: Transaction, db: Firestore, uid: string, loan: LoanDoc, now: Timestamp): void {
+  const watch: WatchDoc = {
+    uid,
+    type: "back",
+    targetId: loan.itemId,
+    workId: loan.workId,
+    title: loan.title.slice(0, 300),
+    createdAt: now,
+  };
+  tx.set(db.collection(COL.watches).doc(watchId(uid, "back", loan.itemId)), watch);
+}
+
+/**
+ * Decline the copy's other open requests because it was just lent: reason
+ * "lentToSomeoneElse", a back-watch for each borrower, and a push saying so.
+ */
+function declineOthers(
+  tx: Transaction,
+  db: Firestore,
+  others: QuerySnapshot,
+  exceptLoanId: string | null,
+  ownerName: string,
+  now: Timestamp,
+): Push[] {
+  const pushes: Push[] = [];
+  for (const o of others.docs) {
+    if (o.id === exceptLoanId) continue;
+    const other = o.data() as LoanDoc;
+    const reason: DeclineReason = "lentToSomeoneElse";
+    tx.update(o.ref, { status: "declined", declineReason: reason, updatedAt: now });
+    if (other.borrowerUid) {
+      setBackWatch(tx, db, other.borrowerUid, other, now);
+      pushes.push({ uids: [other.borrowerUid], message: msg.requestDeclined(ownerName, other.title, o.id, reason) });
+    }
+  }
+  return pushes;
 }
 
 async function getLoan(tx: Transaction, db: Firestore, loanId: string): Promise<{ ref: DocumentReference; loan: LoanDoc }> {
@@ -159,9 +214,11 @@ export async function respondToRequest(deps: Deps, caller: Caller, data: unknown
     }
 
     if (!input.accept) {
-      tx.update(ref, { status: nextStatus(loan.status, "decline"), updatedAt: now });
+      const reason = input.reason ?? null;
+      tx.update(ref, { status: nextStatus(loan.status, "decline"), declineReason: reason, updatedAt: now });
       if (loan.borrowerUid) {
-        pushes.push({ uids: [loan.borrowerUid], message: msg.requestDeclined(loan.ownerName, loan.title, input.loanId) });
+        if (reason === "lentToSomeoneElse") setBackWatch(tx, db, loan.borrowerUid, loan, now);
+        pushes.push({ uids: [loan.borrowerUid], message: msg.requestDeclined(loan.ownerName, loan.title, input.loanId, reason) });
       }
       return { expired: false as const, pushes };
     }
@@ -184,14 +241,7 @@ export async function respondToRequest(deps: Deps, caller: Caller, data: unknown
     });
     tx.update(itemRef, { loanState: "lent", activeLoanId: input.loanId, dueDate: ts(due), updatedAt: now });
     pushes.push({ uids: loan.borrowerUid ? [loan.borrowerUid] : [], message: msg.requestAccepted(loan.ownerName, loan.title, input.loanId, due) });
-    for (const o of others.docs) {
-      if (o.id === input.loanId) continue;
-      const other = o.data() as LoanDoc;
-      tx.update(o.ref, { status: "declined", updatedAt: now });
-      if (other.borrowerUid) {
-        pushes.push({ uids: [other.borrowerUid], message: msg.requestDeclined(other.ownerName, other.title, o.id) });
-      }
-    }
+    pushes.push(...declineOthers(tx, db, others, input.loanId, loan.ownerName, now));
     return { expired: false as const, pushes };
   });
 
@@ -274,11 +324,7 @@ export async function recordLoan(deps: Deps, caller: Caller, data: unknown): Pro
     if (borrowerUid && borrowerHasOwner) {
       out.push({ uids: [borrowerUid], message: msg.lentToYou(owner.name, item.title, loanRef.id, due) });
     }
-    for (const o of others.docs) {
-      const other = o.data() as LoanDoc;
-      tx.update(o.ref, { status: "declined", updatedAt: now });
-      if (other.borrowerUid) out.push({ uids: [other.borrowerUid], message: msg.requestDeclined(owner.name, item.title, o.id) });
-    }
+    out.push(...declineOthers(tx, db, others, null, owner.name, now));
     return out;
   });
 
@@ -294,7 +340,12 @@ export async function markReturned(deps: Deps, caller: Caller, data: unknown): P
     const { ref, loan } = await getLoan(tx, db, loanId);
     assertActor(loan, caller.uid, "markReturned");
     const now = ts(deps.now());
-    tx.update(ref, { status: nextStatus(loan.status, "markReturned"), returnMarkedAt: now, updatedAt: now });
+    tx.update(ref, {
+      status: nextStatus(loan.status, "markReturned"),
+      returnMarkedAt: now,
+      notBackYetAt: null,
+      updatedAt: now,
+    });
     return loan;
   });
   await sendAll(deps, [{ uids: [loan.ownerId], message: msg.markedReturned(loan.borrowerName, loan.title, loanId) }]);
@@ -305,17 +356,30 @@ export async function markReturned(deps: Deps, caller: Caller, data: unknown): P
  * Owner confirms the book is back: item available. "Back" watchers are told
  * only if the copy is shared and they have the owner saved (they could see
  * it); all of the copy's "back" watches are then removed.
+ *
+ * `reason: "notCollected"` (active loans only): the borrower never picked it
+ * up. The loan becomes `cancelled` with `closedReason: "notCollected"`, the
+ * watchers get "available again" instead of "Book is back", and the borrower
+ * gets no review prompt.
  */
 export async function confirmReturn(deps: Deps, caller: Caller, data: unknown): Promise<{ ok: true }> {
-  const { loanId } = parseInput(loanIdSchema, data);
+  const { loanId, reason } = parseInput(confirmReturnSchema, data);
+  const notCollected = reason === "notCollected";
+  const action = notCollected ? "notCollected" : "confirmReturn";
   const { db } = deps;
   const loan = await db.runTransaction(async (tx) => {
     const { ref, loan } = await getLoan(tx, db, loanId);
-    assertActor(loan, caller.uid, "confirmReturn");
+    assertActor(loan, caller.uid, action);
+    const status = nextStatus(loan.status, action);
     const itemRef = db.collection(COL.items).doc(loan.itemId);
     const itemSnap = await tx.get(itemRef);
     const now = ts(deps.now());
-    tx.update(ref, { status: nextStatus(loan.status, "confirmReturn"), returnedAt: now, updatedAt: now });
+    tx.update(
+      ref,
+      notCollected
+        ? { status, closedReason: "notCollected", notBackYetAt: null, updatedAt: now }
+        : { status, returnedAt: now, notBackYetAt: null, updatedAt: now },
+    );
     const item = itemSnap.data() as ItemDoc | undefined;
     if (item && item.activeLoanId === loanId) {
       tx.update(itemRef, { loanState: "available", activeLoanId: null, dueDate: null, updatedAt: now });
@@ -338,9 +402,16 @@ export async function confirmReturn(deps: Deps, caller: Caller, data: unknown): 
     watchers = watchers.filter((_, i) => links[i]?.exists);
   }
   const pushes: Push[] = [];
-  if (watchers.length) pushes.push({ uids: watchers, message: msg.itemBack(loan.ownerName, loan.title, loan.itemId) });
+  if (watchers.length) {
+    pushes.push({
+      uids: watchers,
+      message: notCollected
+        ? msg.availableAgain(loan.title, loan.itemId)
+        : msg.itemBack(loan.ownerName, loan.title, loan.itemId),
+    });
+  }
   // Review prompt only to a borrower who has the owner saved (see recordLoan).
-  if (loan.borrowerUid && (await db.collection(COL.links).doc(linkId(loan.borrowerUid, loan.ownerId)).get()).exists) {
+  if (!notCollected && loan.borrowerUid && (await hasSaved(db, loan.borrowerUid, loan.ownerId))) {
     pushes.push({ uids: [loan.borrowerUid], message: msg.reviewPrompt(loan.title, loan.workId, loanId) });
   }
   await sendAll(deps, pushes);
@@ -352,23 +423,68 @@ export async function confirmReturn(deps: Deps, caller: Caller, data: unknown): 
   return { ok: true };
 }
 
-/** Owner changes the due date of an active loan. */
+/**
+ * "Not back yet": the owner says the borrower hasn't actually returned the
+ * book. `returnPending` -> `active`, `returnMarkedAt` cleared, so the daily
+ * reminders apply again. `notBackYetAt` records it so the borrower's app can
+ * say "Ravi hasn't got it back yet" even without a push; the next
+ * markReturned or confirmReturn clears it. The borrower is told if they have
+ * the owner saved.
+ */
+export async function markNotReturned(deps: Deps, caller: Caller, data: unknown): Promise<{ ok: true }> {
+  const { loanId } = parseInput(loanIdSchema, data);
+  const { db } = deps;
+  const loan = await db.runTransaction(async (tx) => {
+    const { ref, loan } = await getLoan(tx, db, loanId);
+    assertActor(loan, caller.uid, "markNotReturned");
+    const now = ts(deps.now());
+    tx.update(ref, {
+      status: nextStatus(loan.status, "markNotReturned"),
+      returnMarkedAt: null,
+      notBackYetAt: now,
+      updatedAt: now,
+    });
+    return loan;
+  });
+  if (loan.borrowerUid && (await hasSaved(db, loan.borrowerUid, loan.ownerId))) {
+    await sendAll(deps, [{ uids: [loan.borrowerUid], message: msg.notBackYet(loan.ownerName, loan.title, loanId) }]);
+  }
+  return { ok: true };
+}
+
+/**
+ * Owner changes the due date of an active loan. The borrower is told only if
+ * they have the owner saved (DECISIONS #23).
+ */
 export async function updateDueDate(deps: Deps, caller: Caller, data: unknown): Promise<{ ok: true }> {
   const input = parseInput(updateDueDateSchema, data);
   const { db } = deps;
   const nowDate = deps.now();
   const due = resolveDueDate(input.dueDate, nowDate);
-  await db.runTransaction(async (tx) => {
+  const loan = await db.runTransaction(async (tx) => {
     const { ref, loan } = await getLoan(tx, db, input.loanId);
     assertActor(loan, caller.uid, "updateDueDate");
     nextStatus(loan.status, "updateDueDate");
     const itemRef = db.collection(COL.items).doc(loan.itemId);
     const itemSnap = await tx.get(itemRef);
     const now = ts(nowDate);
-    tx.update(ref, { dueDate: ts(due), updatedAt: now });
+    // firstDueDate keeps the date set at accept/lend for the timeline ("Accepted (due 12 Dec) ·
+    // Due date moved to 19 Dec", D4); only the first change records it.
+    tx.update(ref, {
+      dueDate: ts(due),
+      dueChangedAt: now,
+      ...(loan.firstDueDate || !loan.dueDate ? {} : { firstDueDate: loan.dueDate }),
+      updatedAt: now,
+    });
     if (itemSnap.exists && (itemSnap.data() as ItemDoc).activeLoanId === input.loanId) {
       tx.update(itemRef, { dueDate: ts(due), updatedAt: now });
     }
+    return loan;
   });
+  if (loan.borrowerUid && (await hasSaved(db, loan.borrowerUid, loan.ownerId))) {
+    await sendAll(deps, [
+      { uids: [loan.borrowerUid], message: msg.dueChanged(loan.ownerName, loan.title, input.loanId, due) },
+    ]);
+  }
   return { ok: true };
 }

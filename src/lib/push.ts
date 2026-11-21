@@ -1,8 +1,9 @@
 /**
  * Push notifications (Expo push service, DECISIONS #6). Native only; `push.web.ts` is a no-op.
  *
- * - Asked for after onboarding (the signed-in app layout mounts `usePushRegistration()`),
- *   never on first launch.
+ * - Never asked for on start (C11): the signed-in layout registers silently when permission is
+ *   already granted, and the system dialog is shown only after the in-context pre-prompt
+ *   (`src/features/push-ask`) or from Me › Notifications.
  * - The Expo push token is registered with the `registerPushToken` callable (which also removes
  *   it from any other account on this device, DECISIONS #26) and removed again on sign-out with
  *   `unregisterPushToken`.
@@ -68,9 +69,23 @@ export async function getPushPermission(): Promise<PushPermission> {
   return status === 'granted' ? 'granted' : status === 'denied' ? 'denied' : 'undetermined';
 }
 
+/** Permission plus whether the system dialog can still be shown (for the in-context ask, C11). */
+export async function getPushPermissionState(): Promise<{
+  permission: PushPermission;
+  canAskAgain: boolean;
+}> {
+  if (!Device.isDevice) return { permission: 'unsupported', canAskAgain: false };
+  const res = await Notifications.getPermissionsAsync();
+  const permission =
+    res.status === 'granted' ? 'granted' : res.status === 'denied' ? 'denied' : 'undetermined';
+  return { permission, canAskAgain: res.canAskAgain };
+}
+
 /**
- * Asks for permission (if it can still be asked), gets the Expo push token and registers it for
- * `uid` (`registerPushToken`). Safe to call on every app start. Returns the resulting permission.
+ * Gets the Expo push token and registers it for `uid` (`registerPushToken`). With
+ * `prompt: false` (every app start) it only registers when permission is already granted;
+ * with `prompt: true` (after the in-context pre-prompt, or Me › Notifications) it first shows
+ * the system dialog if it can still be shown. Returns the resulting permission.
  * Never throws: failures are logged, the app works without push.
  */
 export async function registerForPush(

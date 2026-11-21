@@ -29,6 +29,21 @@ describe("loan state machine", () => {
     expect(nextStatus("active", "confirmReturn")).toBe("returned");
     expect(nextStatus("returnPending", "confirmReturn")).toBe("returned");
     expect(nextStatus("active", "updateDueDate")).toBe("active");
+    // UX v1.1 (B2, B3, B5)
+    expect(nextStatus("active", "notCollected")).toBe("cancelled");
+    expect(nextStatus("returnPending", "markNotReturned")).toBe("active");
+    expect(nextStatus("active", "ownerLeave")).toBe("ownerLeft");
+    expect(nextStatus("returnPending", "ownerLeave")).toBe("ownerLeft");
+  });
+
+  it("notCollected is for active loans only; ownerLeft is terminal", () => {
+    expect(() => nextStatus("returnPending", "notCollected")).toThrow(/close this loan as not collected/);
+    expect(() => nextStatus("requested", "notCollected")).toThrowError(expect.objectContaining({ code: "failed-precondition" }));
+    expect(() => nextStatus("active", "markNotReturned")).toThrow(/an active loan/);
+    for (const action of Object.keys(TRANSITIONS) as LoanAction[]) {
+      expect(canTransition("ownerLeft", action)).toBe(false);
+    }
+    expect(() => nextStatus("ownerLeft", "markReturned")).toThrow(/owner left LendShelf/);
   });
 
   it("rejects everything else with failed-precondition", () => {
@@ -42,7 +57,7 @@ describe("loan state machine", () => {
         expect(() => nextStatus(status, action)).toThrowError(expect.objectContaining({ code: "failed-precondition" }));
       }
     }
-    expect(allowed).toBe(8);
+    expect(allowed).toBe(12);
   });
 
   it("gives a readable message", () => {
@@ -70,6 +85,10 @@ describe("actors", () => {
     expect(() => assertActor(loan, "b", "markReturned")).not.toThrow();
     expect(() => assertActor(loan, "o", "markReturned")).toThrow(/Only the borrower/);
     expect(() => assertActor(loan, "o", "cancel")).toThrow(/Only the borrower/);
+    expect(() => assertActor(loan, "o", "notCollected")).not.toThrow();
+    expect(() => assertActor(loan, "b", "notCollected")).toThrow(/Only the owner/);
+    expect(() => assertActor(loan, "o", "markNotReturned")).not.toThrow();
+    expect(() => assertActor(loan, "b", "markNotReturned")).toThrow(/Only the owner/);
     expect(() => assertActor(loan, "x", "confirmReturn")).toThrowError(
       expect.objectContaining({ code: "permission-denied" }),
     );
@@ -131,5 +150,39 @@ describe("due-soon wording", () => {
     const twoDays = msg.dueSoon("Dune", "L1", new Date("2026-11-23T00:00:00Z"), now);
     expect(twoDays.body).toBe("Dune is due back in 2 days (23 Nov).");
     expect(twoDays.data).toEqual({ type: "dueSoon", loanId: "L1" });
+  });
+});
+
+describe("UX v1.1 push texts", () => {
+  it("decline reasons each have their own text and carry the reason", () => {
+    expect(msg.requestDeclined("Ravi Menon", "Animal Farm", "L1").body).toBe("Ravi Menon can't lend Animal Farm right now.");
+    expect(msg.requestDeclined("Ravi Menon", "Animal Farm", "L1").data).toEqual({ type: "requestDeclined", loanId: "L1" });
+    expect(msg.requestDeclined("Ravi Menon", "Animal Farm", "L1", "readingIt").body).toBe("Ravi Menon is reading Animal Farm right now.");
+    expect(msg.requestDeclined("Ravi Menon", "Animal Farm", "L1", "notLending").body).toBe(
+      "Ravi Menon isn't lending Animal Farm at the moment.",
+    );
+    const lent = msg.requestDeclined("Ravi Menon", "Animal Farm", "L1", "lentToSomeoneElse");
+    expect(lent.body).toBe("Animal Farm went to someone else. We'll tell you when it's back.");
+    expect(lent.data).toEqual({ type: "requestDeclined", loanId: "L1", reason: "lentToSomeoneElse" });
+  });
+
+  it("availableAgain, notBackYet, dueChanged, ownerLeft", () => {
+    expect(msg.availableAgain("Animal Farm", "I1")).toEqual({
+      title: "Available again",
+      body: "Animal Farm is available again.",
+      data: { type: "availableAgain", itemId: "I1" },
+    });
+    expect(msg.notBackYet("Ravi Menon", "Animal Farm", "L1")).toMatchObject({
+      body: "Ravi Menon hasn't got Animal Farm back yet.",
+      data: { type: "notBackYet", loanId: "L1" },
+    });
+    expect(msg.dueChanged("Ravi Menon", "Animal Farm", "L1", new Date("2026-12-19T00:00:00Z"))).toMatchObject({
+      body: "Ravi Menon changed the due date for Animal Farm to 19 Dec.",
+      data: { type: "dueChanged", loanId: "L1" },
+    });
+    const left = msg.ownerLeft("Ravi Menon", "Animal Farm", "L1");
+    expect(left.title).toBe("Ravi Menon left LendShelf");
+    expect(left.body).toBe("If you still have Animal Farm, message them on WhatsApp if you still have their number.");
+    expect(left.data).toEqual({ type: "ownerLeft", loanId: "L1" });
   });
 });

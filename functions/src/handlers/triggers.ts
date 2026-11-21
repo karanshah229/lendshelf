@@ -13,6 +13,11 @@ export function becameShared(before: ItemDoc | undefined, after: ItemDoc | undef
  * borrowers. Each loan is updated in a transaction that re-checks the status,
  * so a request accepted or declined meanwhile is left alone. Returns the
  * notified uids.
+ *
+ * Triggers run late (seconds, or more in the emulator), so the copy is read
+ * again first: if it exists again under the same id (the emulator seed after
+ * a wipe), its requests are left alone (QA B5). `event.time` can't be used
+ * instead: the emulator sets it when it dispatches the event, to the second.
  */
 export async function cancelRequestsForDeletedItem(deps: Deps, itemId: string): Promise<string[]> {
   const { db } = deps;
@@ -21,14 +26,17 @@ export async function cancelRequestsForDeletedItem(deps: Deps, itemId: string): 
     .where("itemId", "==", itemId)
     .where("status", "==", "requested")
     .get();
+  const itemRef = db.collection(COL.items).doc(itemId);
   const notified: string[] = [];
   for (const d of open.docs) {
     try {
       const loan = await db.runTransaction(async (tx) => {
-        const snap = await tx.get(d.ref);
+        const [snap, itemSnap] = await Promise.all([tx.get(d.ref), tx.get(itemRef)]);
         const current = snap.data() as LoanDoc | undefined;
         if (!current || current.status !== "requested") return null;
-        tx.update(d.ref, { status: "cancelled", updatedAt: ts(deps.now()) });
+        if (itemSnap.exists) return null;
+        // closedReason: Recent says "copy removed", not "Kabir cancelled" (QA B16).
+        tx.update(d.ref, { status: "cancelled", closedReason: "copyRemoved", updatedAt: ts(deps.now()) });
         return current;
       });
       if (loan?.borrowerUid) {

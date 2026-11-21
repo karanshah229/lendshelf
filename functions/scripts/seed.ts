@@ -4,12 +4,15 @@
  *   npm --prefix functions run serve     # terminal 1
  *   npm --prefix functions run seed      # terminal 2
  *
- * Wipes Firestore and Auth emulator data first, so it is idempotent.
+ * Wipes Firestore and Auth emulator data first, so it is idempotent. Background
+ * triggers are paused while it wipes and writes (QA B5): otherwise the delete
+ * triggers from the wipe run seconds later and cancel the seeded requests.
  * Needs no network: all book data (real Open Library works) is hardcoded.
  */
 const PROJECT_ID = "demo-lendshelf";
 const FIRESTORE_HOST = process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8080";
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099";
+const HUB_HOST = process.env.FIREBASE_EMULATOR_HUB ?? "127.0.0.1:4400";
 process.env.FIRESTORE_EMULATOR_HOST = FIRESTORE_HOST;
 process.env.FIREBASE_AUTH_EMULATOR_HOST = AUTH_HOST;
 process.env.GCLOUD_PROJECT = PROJECT_ID;
@@ -25,6 +28,8 @@ import {
   reviewId,
   watchId,
   type BookFormat,
+  type ClosedReason,
+  type DeclineReason,
   type IsbnIndexDoc,
   type ItemDoc,
   type LinkDoc,
@@ -205,10 +210,36 @@ async function wipe(): Promise<void> {
   if (!r1.ok || !r2.ok) throw new Error(`Wiping emulators failed (firestore ${r1.status}, auth ${r2.status})`);
 }
 
+/**
+ * Pauses or resumes Cloud Functions background triggers in the emulator suite
+ * (Emulator Hub API). Events written while paused are never delivered. Returns
+ * false when the hub or the Functions emulator isn't running (nothing to pause).
+ */
+async function setBackgroundTriggers(enabled: boolean): Promise<boolean> {
+  const action = enabled ? "enableBackgroundTriggers" : "disableBackgroundTriggers";
+  try {
+    const r = await fetch(`http://${HUB_HOST}/functions/${action}`, { method: "PUT" });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ---- main ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
   await assertEmulatorsUp();
+  const paused = await setBackgroundTriggers(false);
+  try {
+    await seed();
+  } finally {
+    if (paused && !(await setBackgroundTriggers(true))) {
+      console.error(`Couldn't resume background triggers. Run: curl -X PUT http://${HUB_HOST}/functions/enableBackgroundTriggers`);
+    }
+  }
+}
+
+async function seed(): Promise<void> {
   await wipe();
 
   const app = initializeApp({ projectId: PROJECT_ID });
@@ -217,7 +248,7 @@ async function main(): Promise<void> {
   const writer = db.bulkWriter();
   const set = (col: string, id: string, data: object) => void writer.set(db.collection(col).doc(id), data);
 
-  // Auth users (triggers onUserCreated if the functions emulator is running; it is idempotent).
+  // Auth users (onUserCreated is paused; the seed writes profiles and phoneIndex itself).
   for (const u of USERS) {
     await auth.createUser({ uid: u.uid, phoneNumber: u.phone, displayName: u.name });
   }
@@ -300,17 +331,23 @@ async function main(): Promise<void> {
   type LoanSpec = {
     id: string; owner: SeedUser; work: string; borrower: SeedUser | { name: string; phone: string | null };
     status: LoanDoc["status"]; message?: string; requested?: number; started?: number; due?: number;
-    marked?: number; returned?: number;
+    marked?: number; returned?: number; declineReason?: DeclineReason; closedReason?: ClosedReason;
   };
   const LOANS: LoanSpec[] = [
     { id: "loan-requested", owner: U.asha, work: "sapiens", borrower: U.ravi, status: "requested", requested: 1, message: "Could I borrow this after you're done? Happy to pick it up Saturday." },
+    // A second open request for the same copy (Asha chooses between Ravi and Kabir).
+    { id: "loan-requested-2", owner: U.asha, work: "sapiens", borrower: U.kabir, status: "requested", requested: 2, message: "Would love to read this next!" },
     { id: "loan-active", owner: U.ravi, work: "phm", borrower: U.meera, status: "active", requested: 6, started: 5, due: -16 },
     { id: "loan-due-soon", owner: U.ravi, work: "martian", borrower: U.zoya, status: "active", requested: 20, started: 19, due: -2 },
     { id: "loan-overdue", owner: U.meera, work: "gost", borrower: U.kabir, status: "active", requested: 31, started: 30, due: 9 },
     { id: "loan-return-pending", owner: U.kabir, work: "habits", borrower: U.asha, status: "returnPending", requested: 21, started: 20, due: -1, marked: 1 },
     { id: "loan-returned", owner: U.asha, work: "dune", borrower: U.zoya, status: "returned", requested: 40, started: 39, due: 18, returned: 10 },
     { id: "loan-non-app", owner: U.asha, work: "hp1", borrower: { name: "Nikhil (neighbour)", phone: "+919812345678" }, status: "active", started: 14, due: -7 },
-    { id: "loan-declined", owner: U.zoya, work: "solitude", borrower: U.kabir, status: "declined", requested: 12 },
+    { id: "loan-declined", owner: U.zoya, work: "solitude", borrower: U.kabir, status: "declined", requested: 12, declineReason: "readingIt" },
+    // Kabir asked for Project Hail Mary at the same time as Meera; Ravi lent it to Meera (Kabir has a back-watch).
+    { id: "loan-declined-lent", owner: U.ravi, work: "phm", borrower: U.kabir, status: "declined", requested: 6, declineReason: "lentToSomeoneElse" },
+    // Accepted but never picked up; Asha closed it as not collected.
+    { id: "loan-not-collected", owner: U.asha, work: "gatsby", borrower: U.meera, status: "cancelled", requested: 15, started: 14, due: -7, closedReason: "notCollected" },
     { id: "loan-cancelled", owner: U.asha, work: "hobbit", borrower: U.meera, status: "cancelled", requested: 9 },
     { id: "loan-expired", owner: U.zoya, work: "prince", borrower: U.ravi, status: "expired", requested: 10 },
   ];
@@ -332,6 +369,8 @@ async function main(): Promise<void> {
       returnMarkedAt: l.marked !== undefined ? ago(l.marked) : null,
       returnedAt: l.returned !== undefined ? ago(l.returned) : null,
       updatedAt: ago(Math.min(...[l.requested, l.started, l.marked, l.returned].filter((x): x is number => x !== undefined))),
+      ...(l.declineReason ? { declineReason: l.declineReason } : {}),
+      ...(l.closedReason ? { closedReason: l.closedReason } : {}),
     };
     set(COL.loans, l.id, loan);
     if (l.status === "active" || l.status === "returnPending") {
@@ -340,6 +379,15 @@ async function main(): Promise<void> {
       item.dueDate = dueDate;
     }
   }
+  // Owner left: Dev Patel (no longer on the app) lent Meera Animal Farm, then deleted his account.
+  // His user, profile and copy are gone; the loan keeps his name with the phone blanked.
+  const ownerLeftLoan: LoanDoc = {
+    itemId: "item-dev-animal", workId: olWorkId("OL1168007W"), ownerId: "demo-dev-left", ownerName: "Dev Patel", ownerPhone: "",
+    borrowerUid: U.meera.uid, borrowerName: U.meera.name, borrowerPhone: U.meera.phone,
+    title: "Animal Farm", coverUrl: coverUrl(11261770), status: "ownerLeft", message: null, dueDate: ago(-5),
+    requestedAt: ago(18), startedAt: ago(17), returnMarkedAt: null, returnedAt: null, updatedAt: ago(2),
+  };
+  set(COL.loans, "loan-owner-left", ownerLeftLoan);
   for (const [id, item] of items) set(COL.items, id, item);
 
   // Reviews (only on works the author can plausibly have read)
@@ -373,6 +421,7 @@ async function main(): Promise<void> {
     [U.ravi, "wishlist", olWorkId("OL20668662W"), "palace"],
     [U.asha, "wishlist", olWorkId("OL8479867W"), "wind"],
     [U.meera, "back", itemId(U.asha, "hp1"), "hp1"],
+    [U.kabir, "back", itemId(U.ravi, "phm"), "phm"], // created by the server when his request was declined
   ];
   for (const [u, type, targetId, code] of WATCHES) {
     const w = WORK_BY_CODE.get(code) as SeedWork;
@@ -395,8 +444,8 @@ async function main(): Promise<void> {
     );
   }
   line("");
-  line(`  works ${WORKS.length + 1} (1 custom), items ${items.size}, links ${linkCount}, loans ${LOANS.length}, reviews ${REVIEWS.length}, watches ${WATCHES.length}`);
-  line("  loans: " + LOANS.map((l) => `${l.id.replace("loan-", "")}`).join(", "));
+  line(`  works ${WORKS.length + 1} (1 custom), items ${items.size}, links ${linkCount}, loans ${LOANS.length + 1}, reviews ${REVIEWS.length}, watches ${WATCHES.length}`);
+  line("  loans: " + [...LOANS.map((l) => l.id), "loan-owner-left"].map((id) => id.replace("loan-", "")).join(", "));
   line("  one-way link: Zoya has Asha saved; Asha does not have Zoya.");
   line("");
   line("Sign in with any number above. The Auth emulator issues the SMS code:");

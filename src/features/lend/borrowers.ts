@@ -4,6 +4,7 @@
  */
 import { formatShortDate } from '@/lib/dates';
 import { normaliseText } from '@/lib/search';
+import { greeting } from '@/lib/whatsapp';
 
 export interface Borrower {
   name: string;
@@ -51,16 +52,18 @@ export function buildBorrowerOptions(
   };
 }
 
-const firstName = (name: string) => name.trim().split(/\s+/)[0] || name.trim();
-
-/** Owner → borrower, sent from the success screen after recording a loan. */
+/**
+ * Owner → borrower, sent from the success screen after recording a loan. `borrowerName` is the
+ * borrower's *profile* name when they're on LendShelf, else null ("Hi!"): never the name typed in
+ * or saved in my contacts (R21).
+ */
 export function lentMessage(input: {
-  borrowerName: string;
+  borrowerName: string | null | undefined;
   title: string;
   dueDate: Date | null;
   now?: Date;
 }): string {
-  const hi = `Hi ${firstName(input.borrowerName)}!`;
+  const hi = greeting(input.borrowerName);
   const book = `“${input.title.trim()}”`;
   if (!input.dueDate) return `${hi} Here's ${book}, enjoy! I've noted it on LendShelf.`;
   const when = formatShortDate(input.dueDate, input.now ?? new Date());

@@ -23,7 +23,15 @@ export function startOfDay(value: DateInput): Date {
 
 export function addDays(value: DateInput, days: number): Date {
   const d = toDate(value);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days, d.getHours(), d.getMinutes());
+  return new Date(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate() + days,
+    d.getHours(),
+    d.getMinutes(),
+    d.getSeconds(),
+    d.getMilliseconds()
+  );
 }
 
 /** Whole calendar days from `from` to `to` (negative if `to` is earlier). DST-safe. */

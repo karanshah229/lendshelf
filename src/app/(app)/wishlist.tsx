@@ -18,7 +18,7 @@ import { useWork } from '@/hooks/use-work';
 import { toast, toastError } from '@/lib/toast';
 import { itemStatus, type Watch, type WithId } from '@/types/model';
 
-import { circleCopiesForWork, summarizeCircleCopies } from '@/features/book/circle-copies';
+import { circleCopiesForBook, summarizeCircleCopies } from '@/features/book/circle-copies';
 import { useCircleItems, useNameOf, useRequestedItemIds } from '@/features/shared/hooks';
 import { removeWatch, setWishlisted } from '@/features/shared/mutations';
 import { BookRowSkeletons, SectionHeader } from '@/features/shared/ui';
@@ -101,7 +101,7 @@ export default function WishlistScreen() {
           watch,
           availability: wishlistAvailability(
             summarizeCircleCopies(
-              circleCopiesForWork(watch.workId, items, { uid, requestedItemIds, nameOf })
+              circleCopiesForBook(watch.workId, null, items, { uid, requestedItemIds, nameOf })
             ),
             nameOf
           ),
@@ -113,16 +113,9 @@ export default function WishlistScreen() {
 
   const removeFromWishlist = async (watch: WithId<Watch>) => {
     await setWishlisted(uid, { workId: watch.workId, title: watch.title }, false);
-    toast.success('Removed from your wishlist', {
-      action: {
-        label: 'Undo',
-        onClick: () => {
-          setWishlisted(uid, { workId: watch.workId, title: watch.title }, true).catch((e) =>
-            toastError(e)
-          );
-        },
-      },
-    });
+    // No undo in a timed toast (UX §F3, §F8): the row leaving the list is the feedback, and the
+    // Book page's Wishlist toggle adds it back.
+    toast.success('Removed from your wishlist');
   };
 
   const empty = !loading && !wishlist.length && !back.length;
@@ -130,7 +123,10 @@ export default function WishlistScreen() {
   return (
     <Screen
       header={
-        <ScreenHeader title="Wishlist" subtitle="We’ll notify you when these show up nearby" />
+        <ScreenHeader
+          title="Wishlist"
+          subtitle="We’ll tell you when someone in your circle has one"
+        />
       }
     >
       {loading ? (

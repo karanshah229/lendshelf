@@ -151,11 +151,13 @@ Every user gets a default public shelf "My books" on sign-up.
 | borrowerPhone | string \| null | E.164 |
 | title | string | denormalised |
 | coverUrl | string \| null | denormalised |
-| status | "requested" \| "declined" \| "cancelled" \| "expired" \| "active" \| "returnPending" \| "returned" | |
+| status | "requested" \| "declined" \| "cancelled" \| "expired" \| "active" \| "returnPending" \| "returned" \| "ownerLeft" | `ownerLeft`: the owner deleted their account while the book was out (terminal) |
 | message | string \| null | borrower's note on request |
 | dueDate | Timestamp \| null | |
 | requestedAt, startedAt, returnMarkedAt, returnedAt | Timestamp \| null | |
 | updatedAt | Timestamp | |
+| declineReason | "readingIt" \| "notLending" \| "lentToSomeoneElse" \| null, optional | on `declined` loans; `lentToSomeoneElse` is set by the server when the copy was lent to someone else |
+| closedReason | "notCollected" \| null, optional | on `cancelled` loans the owner closed because the borrower never picked the book up |
 
 Readable by owner and borrower. **All writes go through callable functions.**
 
@@ -214,21 +216,22 @@ All callables require auth. Errors use `HttpsError` with clear messages.
 |---|---|---|---|
 | `onUserCreated` | Auth trigger (v1 `auth.user().onCreate`) | — | Write `users/{uid}`, `phoneIndex/{phone}`, default shelf "My books". Idempotent. |
 | `completeProfile` | callable | `{ name }` → `{ ok }` | Creates/updates `profiles/{uid}`; also ensures `users`, `phoneIndex`, default shelf exist (fallback if the trigger lags). |
-| `syncContacts` | callable | `{ phones: string[] }` (≤ 5000, E.164) → `{ links: {ownerId, ownerPhone, name}[] }` | Look up `phoneIndex`, upsert links for matches (excluding self), delete links no longer present. Max 20 calls per user per rolling 24 h. |
+| `syncContacts` | callable | `{ phones: string[], replace? }` (≤ 5000, E.164) → `{ links: {ownerId, ownerPhone, name}[], skippedRemovals }` | Look up `phoneIndex`, upsert links for matches (excluding self), delete links no longer present. Without `replace: true`, if that would delete more than half of the existing links, delete nothing and return `skippedRemovals` = the number kept (else 0); `links` is the caller's links afterwards. Max 20 calls per user per rolling 24 h. |
 | `resolveBook` | callable | `{ isbn }` \| `{ olWorkKey, isbn? }` \| `{ gbVolumeId, isbn? }` → `{ workId, work, edition: { isbn, coverUrl, language, publisher, publishYear } }` | Find or create the Work. ISBN path: `isbnIndex` → Open Library `/isbn/{isbn}.json` → work → authors; fallback Google Books. Writes `isbnIndex`; an ISBN passed with a work key / volume id is used only if it belongs to that work. 8 s timeout per request. Sets a generic `User-Agent: LendShelf/0.1`. |
 | `setShelfVisibility` | callable | `{ shelfId, isPublic }` → `{ updated }` | Owner only; updates the shelf and recomputes `sharedWithContacts` on all its items in one batch. |
 | `deleteShelf` | callable | `{ shelfId, moveToShelfId }` → `{ moved }` | Owner only; moves items, recomputes `sharedWithContacts`, deletes shelf. Can't delete the last shelf. |
 | `requestLoan` | callable | `{ itemId, message? }` → `{ loanId, ownerPhone }` | Caller must have the owner saved; item must be shared, `lendable`, `available`; caller not owner; no open request by caller for this item. |
-| `respondToRequest` | callable | `{ loanId, accept, dueDate? (ISO) }` → `{ ok }` | Owner only. Accept → `active` (due default +21 days), item `lent`; other open requests for the item → `declined`. Decline → `declined`. Push to borrower. |
+| `respondToRequest` | callable | `{ loanId, accept, dueDate? (ISO), reason? }` → `{ ok }` | Owner only. Accept → `active` (due default +21 days), item `lent`; other open requests for the item → `declined` with `declineReason: "lentToSomeoneElse"`, a `back` watch for each of those borrowers, push "<title> went to someone else. We'll tell you when it's back." Decline → `declined`, `declineReason` = `reason` (`readingIt` \| `notLending` \| `lentToSomeoneElse`, optional; `lentToSomeoneElse` also creates the back-watch). Push to borrower with the reason's text. |
 | `cancelRequest` | callable | `{ loanId }` | Borrower only, `requested` → `cancelled`. |
-| `recordLoan` | callable | `{ itemId, borrowerName, borrowerPhone?, dueDate? }` → `{ loanId }` | Owner lends directly (also to non-app people). Matches `borrowerPhone` to a user via `phoneIndex`. Item must be available. The borrower is pushed only if they have the owner saved. |
+| `recordLoan` | callable | `{ itemId, borrowerName, borrowerPhone?, dueDate? }` → `{ loanId }` | Owner lends directly (also to non-app people). Matches `borrowerPhone` to a user via `phoneIndex`. Item must be available. Open requests for the item are declined as on accept (`lentToSomeoneElse`, back-watch, push). The borrower is pushed only if they have the owner saved. |
 | `markReturned` | callable | `{ loanId }` | Borrower: `active` → `returnPending`. Push to owner. |
-| `confirmReturn` | callable | `{ loanId }` | Owner: `active`/`returnPending` → `returned`; item `available`; notify `back` watchers who have the owner saved (shared copies only) and delete all `back` watches for the item; push borrower to review. |
-| `updateDueDate` | callable | `{ loanId, dueDate }` | Owner, active loans. |
+| `confirmReturn` | callable | `{ loanId, reason? }` | Owner: `active`/`returnPending` → `returned`; item `available`; notify `back` watchers who have the owner saved (shared copies only) and delete all `back` watches for the item; push borrower to review. `reason: "notCollected"` (`active` only): → `cancelled` with `closedReason: "notCollected"`, item `available`, no review push, watchers get "<title> is available again" instead, watches deleted. |
+| `markNotReturned` | callable | `{ loanId }` | Owner: "Not back yet", `returnPending` → `active`, `returnMarkedAt` cleared. Push to borrower (if they have the owner saved). |
+| `updateDueDate` | callable | `{ loanId, dueDate }` | Owner, active loans. Push to borrower (if they have the owner saved). |
 | `registerPushToken` / `unregisterPushToken` | callable | `{ token }` → `{ ok }` | Add the device's Expo token to the caller (removing it from any other user; keep the 20 newest) / remove it. |
 | `onItemWritten` | Firestore trigger | — | When an item becomes `sharedWithContacts`, push "<owner> added <title>" to users with a `wishlist` watch on that Work who have the owner saved. When an item is deleted, cancel its `requested` loans and push the borrowers "<owner> removed <title>". |
 | `dailyMaintenance` | Scheduled 09:00 Asia/Kolkata | — | Expire `requested` loans older than 7 days; push "due in 2 days" and "overdue" reminders. |
-| `deleteAccount` | callable | `{}` | Removes the user's items (closing their loans), shelves, reviews, watches, links (as viewer and owner), profile, users doc, phoneIndex, storage covers, then the auth user. Loans where they were borrower keep the name but drop `borrowerUid`. |
+| `deleteAccount` | callable | `{}` | Removes the user's items (closing their loans: requests → `cancelled`; books out with an app borrower → `ownerLeft`, name kept, phone blanked, one push to the borrower if they have the owner saved; loans to non-app people deleted), shelves, reviews, watches, links (as viewer and owner), profile, users doc, phoneIndex, storage covers, then the auth user. Loans where they were borrower keep the name but drop `borrowerUid`. |
 
 Push sending goes through a small `sendPush(uids, message)` helper that reads `users/{uid}.pushTokens` and POSTs to `https://exp.host/--/api/v2/push/send`; tokens whose ticket says `DeviceNotRegistered` are removed. It records instead of sending in the emulator. App Check enforcement on callables is opt-in (`ENFORCE_APP_CHECK=true`), to be turned on before production.
 

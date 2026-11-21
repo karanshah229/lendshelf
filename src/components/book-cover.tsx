@@ -49,30 +49,32 @@ export function BookCover({ uri, title, size = 'md', className }: BookCoverProps
         s.box,
         className
       )}
-      accessibilityRole="image"
-      accessibilityLabel={title ? `Cover of ${title}` : 'Book cover'}
+      // Decorative: the title is always written next to the cover, so screen readers skip it
+      // instead of reading the title twice (UX §F8).
+      aria-hidden
     >
+      {/* The placeholder sits under the image, so a slow cover shows the title, not a grey box. */}
+      <View className="absolute bottom-0 left-0 right-0 top-0 items-center justify-center gap-1.5 p-1.5">
+        <Icon as={BookOpen} size={s.icon} className="text-muted-foreground/70" />
+        {title && size !== 'xs' ? (
+          <Text
+            numberOfLines={3}
+            className={cn('text-center font-medium leading-tight text-muted-foreground', s.text)}
+          >
+            {title}
+          </Text>
+        ) : null}
+      </View>
       {showImage ? (
         <Image
           source={{ uri: sourceUri ?? undefined }}
-          className="h-full w-full"
+          // Also absolute: on web a positioned placeholder would otherwise paint over it.
+          className="absolute bottom-0 left-0 right-0 top-0 h-full w-full"
           contentFit="cover"
           transition={150}
           onError={() => setFailed(true)}
         />
-      ) : (
-        <View className="flex-1 items-center justify-center gap-1.5 p-1.5">
-          <Icon as={BookOpen} size={s.icon} className="text-muted-foreground/70" />
-          {title && size !== 'xs' ? (
-            <Text
-              numberOfLines={3}
-              className={cn('text-center font-medium leading-tight text-muted-foreground', s.text)}
-            >
-              {title}
-            </Text>
-          ) : null}
-        </View>
-      )}
+      ) : null}
     </View>
   );
 }

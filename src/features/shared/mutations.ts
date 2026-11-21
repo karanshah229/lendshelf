@@ -13,6 +13,7 @@ import {
   type Visibility,
 } from '@/types/model';
 
+import { askForPushInContext } from '@/features/push-ask/ask';
 import { reviewFields } from '@/features/reviews/review-logic';
 
 // ---------- Watches ----------
@@ -33,6 +34,8 @@ export async function setWishlisted(
     title: work.title.slice(0, 300),
     createdAt: serverTimestamp(),
   });
+  // C11: a wishlist book is a future event ("Get told when a friend has it?").
+  void askForPushInContext('wishlist', { title: work.title });
 }
 
 /** "Notify me when this copy is back" (`watches/{uid}_back_{itemId}`). */

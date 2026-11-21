@@ -4,6 +4,7 @@
  */
 import { router } from 'expo-router';
 import {
+  ArrowRight,
   BellOff,
   BellRing,
   BookLock,
@@ -34,12 +35,15 @@ import type { Item, Loan, WithId } from '@/types/model';
 import { AskDialog, type AskTarget } from '@/features/copy/AskDialog';
 import type { ViewerCopyState } from '@/features/copy/copy-actions';
 import { ConfirmButton } from '@/features/loans/confirm-button';
+import { requestFollowUpMessage } from '@/features/loans/messages';
+import { inPickupWindow } from '@/features/loans/needs-you';
 import { setWatchingBack } from '@/features/shared/mutations';
-import { capitalize } from '@/features/shared/people';
+import { capitalize, shortName } from '@/features/shared/people';
 import { ListRow, PersonAvatar, SectionHeader } from '@/features/shared/ui';
 import { openWhatsApp } from '@/features/shared/whatsapp-open';
 
-const firstName = (name: string) => name.trim().split(/\s+/)[0] || name.trim();
+/** Short name for UI labels; never cuts "Dr. Mehta" to "Dr." (QA B2). */
+const firstName = shortName;
 
 function StatusHero({
   icon,
@@ -117,21 +121,39 @@ export function ViewerPanel({
   };
 
   const message = () =>
-    ownerPhone && openWhatsApp(ownerPhone, aboutBookMessage({ ownerName, title: item.title }));
+    ownerPhone &&
+    openWhatsApp(ownerPhone, aboutBookMessage({ ownerName: profile?.name, title: item.title }));
 
   let hero: ReactNode;
+  const openLoan = (loanId: string) =>
+    router.push({ pathname: '/loan/[loanId]', params: { loanId } });
+  const messageAgain = () =>
+    ownerPhone && openWhatsApp(ownerPhone, requestFollowUpMessage(profile?.name, item.title));
+
   if (state.myBorrow) {
+    // F6 / E4: "Pick up from Ravi" for 48 h after the accept, then "With you · due 12 Dec".
+    const pickup = myBorrowLoan ? inPickupWindow(myBorrowLoan) : false;
     hero = (
       <StatusHero
         icon={HandHelping}
         tone="info"
-        title="You have this copy"
+        title={
+          state.myBorrow.status === 'returnPending'
+            ? `Waiting for ${ownerName} to confirm`
+            : pickup
+              ? `Pick up from ${ownerName}`
+              : 'With you'
+        }
         detail={
           state.myBorrow.status === 'returnPending'
-            ? `Waiting for ${ownerName} to confirm the return`
-            : myBorrowLoan?.dueDate
-              ? capitalize(dueLabel(myBorrowLoan.dueDate))
-              : null
+            ? 'You said you returned it'
+            : pickup
+              ? profile?.pickupNote
+                ? `${ownerName} said yes · pickup: ${profile.pickupNote}`
+                : `${ownerName} said yes`
+              : myBorrowLoan?.dueDate
+                ? capitalize(dueLabel(myBorrowLoan.dueDate))
+                : null
         }
       />
     );
@@ -141,7 +163,7 @@ export function ViewerPanel({
         icon={Clock}
         tone="warning"
         title="Request sent"
-        detail={`Waiting for ${ownerName} to accept`}
+        detail={`${ownerName} can answer in LendShelf`}
       />
     );
   } else if (state.status.kind === 'available') {
@@ -159,7 +181,7 @@ export function ViewerPanel({
       <StatusHero
         icon={Clock}
         tone="muted"
-        title="Lent out"
+        title="Lent"
         detail={label === 'lent out' ? null : capitalize(label)}
       />
     );
@@ -168,8 +190,8 @@ export function ViewerPanel({
       <StatusHero
         icon={BookLock}
         tone="muted"
-        title="Not up for lending"
-        detail={`${ownerName} has it on their shelf but isn’t lending it`}
+        title="Not lending"
+        detail={`${ownerName} has it but isn’t lending it right now`}
       />
     );
   }
@@ -188,6 +210,7 @@ export function ViewerPanel({
                   title: item.title,
                   coverUrl: item.coverUrl,
                   ownerName,
+                  ownerId: item.ownerId,
                 })
               }
             >
@@ -195,10 +218,40 @@ export function ViewerPanel({
               <Text>Ask to borrow</Text>
             </Button>
           ) : null}
-          {state.myRequest ? (
-            <Button variant="outline" onPress={cancelRequest} disabled={busy === 'cancel'}>
-              <Text>{busy === 'cancel' ? 'Cancelling…' : 'Cancel request'}</Text>
+          {state.myBorrow ? (
+            <Button size="lg" onPress={() => openLoan(state.myBorrow!.id)}>
+              <Icon as={ArrowRight} size={16} className="text-primary-foreground" />
+              <Text>Open loan</Text>
             </Button>
+          ) : null}
+          {state.myRequest && ownerPhone ? (
+            <Button variant="outline" onPress={messageAgain}>
+              <Icon as={MessageCircle} size={16} />
+              <Text>Message {firstName(ownerName)} again</Text>
+            </Button>
+          ) : null}
+          {state.myRequest ? (
+            <View className="flex-row gap-2">
+              <Button
+                variant="ghost"
+                className="flex-1"
+                onPress={() => openLoan(state.myRequest!.id)}
+              >
+                <Text>Open request</Text>
+              </Button>
+              <ConfirmButton
+                label={busy === 'cancel' ? 'Cancelling…' : 'Cancel request'}
+                variant="ghost"
+                size="default"
+                className="flex-1"
+                busy={busy === 'cancel'}
+                title="Cancel your request?"
+                description={`${ownerName} won’t see your request for “${item.title}” any more.`}
+                confirmLabel="Cancel request"
+                destructive
+                onConfirm={() => void cancelRequest()}
+              />
+            </View>
           ) : null}
           {state.canNotifyBack ? (
             <Button
@@ -210,10 +263,10 @@ export function ViewerPanel({
               <Text>{state.watchingBack ? 'Stop notifying me' : 'Notify me when it’s back'}</Text>
             </Button>
           ) : null}
-          {state.canMessage ? (
+          {state.canMessage && !state.myRequest && !state.myBorrow ? (
             <Button variant="outline" onPress={message}>
               <Icon as={MessageCircle} size={16} />
-              <Text>Message on WhatsApp</Text>
+              <Text>Message {firstName(ownerName)} on WhatsApp</Text>
             </Button>
           ) : null}
         </View>
@@ -271,7 +324,8 @@ export function BorrowedLoanFallback({
   };
 
   const message = () =>
-    ownerPhone && openWhatsApp(ownerPhone, returnMessage({ ownerName, title: loan.title }));
+    ownerPhone &&
+    openWhatsApp(ownerPhone, returnMessage({ ownerName: loan.ownerName, title: loan.title }));
 
   return (
     <View className="w-full max-w-2xl gap-6 self-center">
@@ -289,7 +343,13 @@ export function BorrowedLoanFallback({
         <StatusHero
           icon={HandHelping}
           tone="info"
-          title="You have this copy"
+          title={
+            pending
+              ? `Waiting for ${ownerName} to confirm`
+              : inPickupWindow(loan)
+                ? `Pick up from ${ownerName}`
+                : 'With you'
+          }
           detail={
             pending
               ? `Waiting for ${ownerName} to confirm the return`
@@ -318,6 +378,12 @@ export function BorrowedLoanFallback({
               <Text>Message {firstName(ownerName)}</Text>
             </Button>
           ) : null}
+          <Button
+            variant="ghost"
+            onPress={() => router.push({ pathname: '/loan/[loanId]', params: { loanId: loan.id } })}
+          >
+            <Text>Open loan</Text>
+          </Button>
         </View>
       </Card>
     </View>

@@ -102,7 +102,25 @@ export type ItemBackendField = 'loanState' | 'dueDate' | 'activeLoanId';
 
 // ---------- loans/{loanId} ----------
 export type LoanStatus =
-  'requested' | 'declined' | 'cancelled' | 'expired' | 'active' | 'returnPending' | 'returned';
+  | 'requested'
+  | 'declined'
+  | 'cancelled'
+  | 'expired'
+  | 'active'
+  | 'returnPending'
+  | 'returned'
+  /** The owner deleted their account while the borrower had the book. Terminal; no reminders. */
+  | 'ownerLeft';
+
+/**
+ * Why a request was declined. Optional when the owner declines; the server sets
+ * 'lentToSomeoneElse' (and a back-watch) when another request is accepted or the copy is lent by hand.
+ */
+export type DeclineReason = 'readingIt' | 'notLending' | 'lentToSomeoneElse';
+/** Why a loan was closed without a return (status 'cancelled'). */
+export type ClosedReason = 'notCollected' | 'copyRemoved';
+/** `confirmReturn({ reason })`: 'returned' (default) or 'notCollected' (never picked up). */
+export type ConfirmReturnReason = 'returned' | 'notCollected';
 
 export interface Loan {
   itemId: string;
@@ -124,6 +142,21 @@ export interface Loan {
   returnMarkedAt: TimestampLike | null;
   returnedAt: TimestampLike | null;
   updatedAt: TimestampLike;
+  /** Only on 'declined' loans, when a reason was given or set by the server. Absent on older loans. */
+  declineReason?: DeclineReason | null;
+  /** Only on loans closed without a return ('cancelled' + 'notCollected'). */
+  closedReason?: ClosedReason | null;
+  /**
+   * Set when the owner said "Not back yet" (returnPending -> active); cleared
+   * when the borrower marks it returned again or the loan closes.
+   */
+  notBackYetAt?: TimestampLike | null;
+  /** When the owner last moved the due date. */
+  dueChangedAt?: TimestampLike | null;
+  /** The due date before the first change (timeline: "Accepted (due 12 Dec)"). */
+  firstDueDate?: TimestampLike | null;
+  /** Set when the borrower deleted their account (`borrowerUid` is then null). */
+  borrowerLeftAt?: TimestampLike | null;
 }
 
 export const OPEN_LOAN_STATUSES: readonly LoanStatus[] = ['requested', 'active', 'returnPending'];
@@ -132,6 +165,7 @@ export const CLOSED_LOAN_STATUSES: readonly LoanStatus[] = [
   'cancelled',
   'expired',
   'returned',
+  'ownerLeft',
 ];
 
 // ---------- reviews/{workId}_{uid} ----------

@@ -1,5 +1,5 @@
-import { CalendarDays, Minus, Plus } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { CalendarDays, CircleAlert, Minus, Plus } from 'lucide-react-native';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import {
   sameDay,
   shiftDueDate,
 } from '@/features/loans/due-dates';
+import { announce } from '@/lib/a11y';
 import { addDays, formatLongDate, startOfDay } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { TimestampLike } from '@/types/model';
@@ -35,11 +36,15 @@ export interface DueDateDialogProps {
   mode: 'accept' | 'change';
   title: string;
   description?: string;
+  /** Side effect to call out before confirming, e.g. "Kabir’s request will be declined…" (E5). */
+  warning?: string;
   /** Current due date (change mode). */
   currentDue?: TimestampLike | null;
   confirmLabel: string;
   /** Resolve to close; throw to keep the dialog open. */
   onConfirm(date: Date): Promise<void>;
+  /** Extra inputs under the warning, e.g. the pickup-note prompt on accept (E5 step 2). */
+  children?: ReactNode;
 }
 
 /**
@@ -59,9 +64,11 @@ function DueDateBody({
   mode,
   title,
   description,
+  warning,
   currentDue,
   confirmLabel,
   onConfirm,
+  children,
 }: DueDateDialogProps) {
   const now = useMemo(() => new Date(), []);
   const chips = useMemo(
@@ -78,8 +85,11 @@ function DueDateBody({
   const atMin = sameDay(date, today) || date < today;
   const atMax = sameDay(date, shiftDueDate(today, 400, now));
 
+  const busyLabel = mode === 'accept' ? 'Lending…' : 'Saving…';
+
   const confirm = async () => {
     setBusy(true);
+    announce(busyLabel);
     try {
       await onConfirm(date);
       onOpenChange(false);
@@ -97,6 +107,18 @@ function DueDateBody({
         {description ? <DialogDescription>{description}</DialogDescription> : null}
       </DialogHeader>
 
+      {warning ? (
+        <View
+          className="flex-row gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3"
+          accessibilityRole="alert"
+        >
+          <Icon as={CircleAlert} size={16} className="mt-0.5 text-amber-700 dark:text-amber-400" />
+          <Text className="flex-1 text-sm leading-5">{warning}</Text>
+        </View>
+      ) : null}
+
+      {children}
+
       <View className="flex-row flex-wrap gap-2">
         {chips.map((c) => {
           const selected = sameDay(c.date, date);
@@ -106,6 +128,8 @@ function DueDateBody({
               onPress={() => setDate(c.date)}
               accessibilityRole="button"
               accessibilityState={{ selected }}
+              // 32 dp chip, 48 dp touch target (F8).
+              hitSlop={{ top: 8, bottom: 8 }}
               className={cn(
                 'rounded-full border px-3.5 py-1.5',
                 selected
@@ -137,7 +161,13 @@ function DueDateBody({
         >
           <Icon as={Minus} size={16} />
         </Button>
-        <View className="flex-1 items-center gap-0.5">
+        {/* Read out the new date after each ±1 day step (F8). */}
+        <View
+          className="flex-1 items-center gap-0.5"
+          accessible
+          accessibilityLabel={`Due ${formatLongDate(date)}, ${WEEKDAYS[date.getDay()]}, ${relativeDueHint(date, now)}`}
+          accessibilityLiveRegion="polite"
+        >
           <View className="flex-row items-center gap-1.5">
             <Icon as={CalendarDays} size={14} className="text-muted-foreground" />
             <Text className="text-xs text-muted-foreground">
@@ -164,7 +194,7 @@ function DueDateBody({
         </Button>
         <Button onPress={confirm} disabled={busy}>
           {busy ? <ActivityIndicator size="small" /> : null}
-          <Text>{confirmLabel}</Text>
+          <Text>{busy ? busyLabel : confirmLabel}</Text>
         </Button>
       </DialogFooter>
     </DialogContent>

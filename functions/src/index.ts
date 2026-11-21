@@ -74,6 +74,7 @@ export const cancelRequest = callable("cancelRequest", loans.cancelRequest);
 export const recordLoan = callable("recordLoan", loans.recordLoan);
 export const markReturned = callable("markReturned", loans.markReturned);
 export const confirmReturn = callable("confirmReturn", loans.confirmReturn);
+export const markNotReturned = callable("markNotReturned", loans.markNotReturned);
 export const updateDueDate = callable("updateDueDate", loans.updateDueDate);
 export const registerPushToken = callable("registerPushToken", devices.registerPushToken);
 export const unregisterPushToken = callable("unregisterPushToken", devices.unregisterPushToken);

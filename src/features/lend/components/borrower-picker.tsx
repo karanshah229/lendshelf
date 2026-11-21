@@ -9,20 +9,13 @@ import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
 import { buildBorrowerOptions, type Borrower } from '@/features/lend/borrowers';
 import { useDeviceContacts } from '@/features/lend/use-device-contacts';
+import { initials } from '@/features/shared/people';
 import { useLinks } from '@/hooks/use-links';
 import { deviceRegion, HAS_ADDRESS_BOOK } from '@/lib/contacts';
 import { formatPhone, normalisePhoneLenient } from '@/lib/phone';
 import { cn } from '@/lib/utils';
 
 const MAX_CONTACT_ROWS = 40;
-
-const initials = (name: string) =>
-  name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('') || '?';
 
 /**
  * Pick who borrows the book: people on LendShelf I have saved, any phone contact,
@@ -149,7 +142,10 @@ export function BorrowerPicker({
 
 function SectionLabel({ children }: { children: string }) {
   return (
-    <Text className="border-t border-border bg-muted/40 px-4 pb-1.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    <Text
+      className="border-t border-border bg-muted/40 px-4 pb-1.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+      role="heading"
+    >
       {children}
     </Text>
   );

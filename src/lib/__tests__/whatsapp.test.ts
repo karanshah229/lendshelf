@@ -1,4 +1,12 @@
-import { aboutBookMessage, askMessage, nudgeMessage, returnMessage, waLink } from '@/lib/whatsapp';
+import {
+  aboutBookMessage,
+  askMessage,
+  borrowerGreetName,
+  greeting,
+  nudgeMessage,
+  returnMessage,
+  waLink,
+} from '@/lib/whatsapp';
 
 const NOW = new Date(2026, 10, 21, 10);
 
@@ -73,5 +81,34 @@ describe('messages', () => {
     expect(aboutBookMessage({ ownerName: 'Asha', title: 'Dune' })).toBe(
       'Hi Asha! I saw “Dune” on your LendShelf.'
     );
+  });
+});
+
+describe('greeting by profile first name (F6)', () => {
+  it('uses the profile first name, never a saved nickname, else "Hi!"', () => {
+    // Saved in my contacts as "Dr. Mehta"; his LendShelf profile says "Ravi Mehta".
+    expect(askMessage({ ownerName: 'Ravi Mehta', title: 'Dune' })).toMatch(/^Hi Ravi! /);
+    expect(greeting('  Ravi  Mehta ')).toBe('Hi Ravi!');
+    expect(greeting(null)).toBe('Hi!');
+    // A profile name that starts with a title is never cut to it (QA B2, R21).
+    expect(greeting('Dr. Mehta')).toBe('Hi Dr. Mehta!');
+    expect(greeting('Kabir')).toBe('Hi Kabir!');
+    expect(greeting('   ')).toBe('Hi!');
+    expect(aboutBookMessage({ ownerName: undefined, title: 'Dune' })).toBe(
+      'Hi! I saw “Dune” on your LendShelf.'
+    );
+    expect(nudgeMessage({ borrowerName: null, title: 'Dune', dueDate: null, now: NOW })).toMatch(
+      /^Hi! Hope you're enjoying/
+    );
+  });
+
+  it('greets a loan borrower by profile name only', () => {
+    const requested = { borrowerUid: 'u1', borrowerName: 'Asha Rao', requestedAt: {} };
+    const handLent = { borrowerUid: 'u1', borrowerName: 'Dr. Mehta', requestedAt: null };
+    const nonApp = { borrowerUid: null, borrowerName: 'Neighbour', requestedAt: null };
+    expect(borrowerGreetName(requested)).toBe('Asha Rao');
+    expect(borrowerGreetName(handLent)).toBeNull();
+    expect(borrowerGreetName(handLent, 'Ravi Mehta')).toBe('Ravi Mehta');
+    expect(borrowerGreetName(nonApp, 'Ignored')).toBeNull();
   });
 });

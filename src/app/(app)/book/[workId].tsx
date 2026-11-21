@@ -17,7 +17,7 @@ import { useWork } from '@/hooks/use-work';
 import { toast, toastError } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 
-import { circleCopiesForWork } from '@/features/book/circle-copies';
+import { circleCopiesForBook } from '@/features/book/circle-copies';
 import { CircleCopiesList, NoCopiesCard } from '@/features/book/CircleCopiesList';
 import { cleanDescription } from '@/features/book/description';
 import { AskDialog, type AskTarget } from '@/features/copy/AskDialog';
@@ -46,9 +46,9 @@ function Description({ text }: { text: string }) {
     >
       <Text
         className="text-sm leading-6 text-foreground/90"
-        numberOfLines={expanded ? undefined : 4}
+        numberOfLines={expanded ? undefined : 3}
         onTextLayout={(e) => {
-          if (!expanded && e.nativeEvent.lines.length >= 4) setLong(true);
+          if (!expanded && e.nativeEvent.lines.length >= 3) setLong(true);
         }}
       >
         {text}
@@ -80,13 +80,13 @@ export default function BookScreen() {
 
   const { mine, others } = useMemo(
     () =>
-      circleCopiesForWork(workId ?? '', items, {
+      circleCopiesForBook(workId ?? '', work, items, {
         uid,
         requestedItemIds,
         borrowedItemIds,
         nameOf,
       }),
-    [workId, items, uid, requestedItemIds, borrowedItemIds, nameOf]
+    [workId, work, items, uid, requestedItemIds, borrowedItemIds, nameOf]
   );
   const wishlisted = !!workId && isWishlisted(workId);
   const description = useMemo(() => cleanDescription(work?.description), [work?.description]);
@@ -107,6 +107,11 @@ export default function BookScreen() {
   };
 
   const addCopy = () => router.push({ pathname: '/add', params: { workId } });
+  const noCopies = !copiesLoading && !mine.length && !others.length;
+  // Hidden when I own a copy (D4); with no copies at all the card below has the button.
+  const showWishlistToggle = !mine.length && !(noCopies && !wishlisted);
+  // Only the creator can attach copies to a custom book (SPEC §1).
+  const canAddCopy = !!work && (!work.isCustom || work.createdBy === uid);
 
   return (
     <Screen header={<ScreenHeader title={work?.title ?? 'Book'} />}>
@@ -124,70 +129,37 @@ export default function BookScreen() {
         </EmptyState>
       ) : (
         <View className="w-full max-w-2xl gap-8 self-center">
-          <View className="items-center gap-3 pt-2">
-            <BookCover uri={work.coverUrl} title={work.title} size="lg" />
-            <View className="items-center gap-1 pt-1">
-              <Text className="text-center text-2xl font-bold tracking-tight" role="heading">
+          {/* Compact header (D4): cover on the left, details on the right. */}
+          <View className="flex-row gap-4 pt-1">
+            <BookCover uri={work.coverUrl} title={work.title} size="md" />
+            <View className="flex-1 justify-center gap-1">
+              <Text className="text-xl font-bold leading-6 tracking-tight" role="heading">
                 {work.title}
               </Text>
               {work.authors.length ? (
-                <Text className="text-center text-base text-muted-foreground">
-                  {work.authors.join(', ')}
-                </Text>
+                <Text className="text-sm text-muted-foreground">{work.authors.join(', ')}</Text>
               ) : null}
               {work.firstPublishYear ? (
-                <Text className="text-sm text-muted-foreground">
+                <Text className="text-xs text-muted-foreground">
                   First published {work.firstPublishYear}
                 </Text>
               ) : null}
-            </View>
-            {reviews.average !== null ? (
-              <View className="flex-row items-center gap-2">
-                <Stars value={reviews.average} size={16} />
-                <Text className="text-sm font-medium">{reviews.average.toFixed(1)}</Text>
-                <Text className="text-sm text-muted-foreground">
-                  · {reviews.count} {reviews.count === 1 ? 'review' : 'reviews'}
-                </Text>
-              </View>
-            ) : null}
-            <View className="mt-2 w-full flex-row gap-2">
-              <Button
-                variant={wishlisted ? 'secondary' : 'outline'}
-                className="flex-1"
-                onPress={toggleWishlist}
-                disabled={savingWish}
-                accessibilityState={{ selected: wishlisted }}
-              >
-                <Icon
-                  as={Heart}
-                  size={16}
-                  className={cn(wishlisted && 'text-rose-500')}
-                  fill={wishlisted ? 'currentColor' : 'transparent'}
-                />
-                <Text>{wishlisted ? 'On wishlist' : 'Wishlist'}</Text>
-              </Button>
-              {/* Only the creator can attach copies to a custom book (SPEC §1). */}
-              {!work.isCustom || work.createdBy === uid ? (
-                <Button variant="outline" className="flex-1" onPress={addCopy}>
-                  <Icon as={BookPlus} size={16} />
-                  <Text>{mine.length ? 'Add another copy' : 'I own this'}</Text>
-                </Button>
+              {reviews.average !== null ? (
+                <View className="flex-row flex-wrap items-center gap-1.5 pt-0.5">
+                  <Stars value={reviews.average} size={14} />
+                  <Text className="text-xs font-medium">{reviews.average.toFixed(1)}</Text>
+                  <Text className="text-xs text-muted-foreground">
+                    · {reviews.count} {reviews.count === 1 ? 'review' : 'reviews'}
+                  </Text>
+                </View>
               ) : null}
             </View>
           </View>
 
-          {description ? (
-            <View>
-              <SectionHeader title="About" />
-              <View className="px-1">
-                <Description text={description} />
-              </View>
-            </View>
-          ) : null}
-
+          {/* Who has it, directly under the header (D4, C9). */}
           <View>
             <SectionHeader
-              title="Copies in your circle"
+              title="Who has it"
               description={
                 others.length
                   ? `${others.filter((c) => c.status.kind === 'available').length} of ${others.length} available to borrow`
@@ -208,13 +180,55 @@ export default function BookScreen() {
                     title: c.item.title,
                     coverUrl: c.item.coverUrl,
                     ownerName: nameOf(c.item.ownerId),
+                    ownerId: c.item.ownerId,
                   })
                 }
               />
             ) : (
-              <NoCopiesCard wishlisted={wishlisted} />
+              <NoCopiesCard
+                wishlisted={wishlisted}
+                onAddToWishlist={toggleWishlist}
+                saving={savingWish}
+              />
             )}
           </View>
+
+          {showWishlistToggle || canAddCopy ? (
+            <View className="-mt-4 flex-row gap-2">
+              {showWishlistToggle ? (
+                <Button
+                  variant={wishlisted ? 'secondary' : 'outline'}
+                  className="flex-1"
+                  onPress={toggleWishlist}
+                  disabled={savingWish}
+                  accessibilityState={{ selected: wishlisted }}
+                >
+                  <Icon
+                    as={Heart}
+                    size={16}
+                    className={cn(wishlisted && 'text-rose-500')}
+                    fill={wishlisted ? 'currentColor' : 'transparent'}
+                  />
+                  <Text>{wishlisted ? 'On wishlist' : 'Wishlist'}</Text>
+                </Button>
+              ) : null}
+              {canAddCopy ? (
+                <Button variant="outline" className="flex-1" onPress={addCopy}>
+                  <Icon as={BookPlus} size={16} />
+                  <Text>{mine.length ? 'Add another copy' : 'I own this'}</Text>
+                </Button>
+              ) : null}
+            </View>
+          ) : null}
+
+          {description ? (
+            <View>
+              <SectionHeader title="About" />
+              <View className="px-1">
+                <Description text={description} />
+              </View>
+            </View>
+          ) : null}
 
           <ReviewList workId={work.id} reviews={reviews} />
         </View>

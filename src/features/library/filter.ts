@@ -4,9 +4,29 @@
  */
 import { backLabel, isOverdue } from '@/lib/dates';
 import { scoreWork, tokenize } from '@/lib/search';
-import type { Item, TimestampLike } from '@/types/model';
+import {
+  DEFAULT_SHELF_NAME,
+  defaultShelfId,
+  type Item,
+  type Shelf,
+  type TimestampLike,
+} from '@/types/model';
 
-export type QuickFilter = 'all' | 'lent' | 'hidden';
+/** How the default collection is shown (UX F6). Display only: the stored name is unchanged. */
+export const MAIN_SHELF_NAME = 'Main shelf';
+
+/**
+ * A collection's display name: the default collection (`default_{uid}`) still called "My books"
+ * is shown as "Main shelf", so "My books" only ever means the tab.
+ */
+export function shelfDisplayName(shelf: Pick<Shelf, 'ownerId' | 'name'> & { id: string }): string {
+  return shelf.id === defaultShelfId(shelf.ownerId) && shelf.name.trim() === DEFAULT_SHELF_NAME
+    ? MAIN_SHELF_NAME
+    : shelf.name;
+}
+
+/** Status chips (D4): All · Out · Not lending · Hidden. */
+export type QuickFilter = 'all' | 'lent' | 'notLending' | 'hidden';
 /** 'all' or a shelf id. */
 export type ShelfFilter = string;
 export const ALL_SHELVES = 'all';
@@ -18,6 +38,7 @@ type CopyLike = Pick<
 
 export function matchesQuickFilter(item: CopyLike, filter: QuickFilter): boolean {
   if (filter === 'lent') return item.loanState === 'lent';
+  if (filter === 'notLending') return item.visibility === 'visible';
   if (filter === 'hidden') return item.visibility === 'hidden';
   return true;
 }
@@ -46,18 +67,20 @@ export function filterCopies<T extends CopyLike>(
 export interface LibraryCounts {
   all: number;
   lent: number;
+  notLending: number;
   hidden: number;
   byShelf: Record<string, number>;
 }
 
 /** Counts for the switcher chips (per shelf) and the quick filters (within the current shelf). */
 export function countCopies(items: readonly CopyLike[], shelfId: ShelfFilter): LibraryCounts {
-  const counts: LibraryCounts = { all: 0, lent: 0, hidden: 0, byShelf: {} };
+  const counts: LibraryCounts = { all: 0, lent: 0, notLending: 0, hidden: 0, byShelf: {} };
   for (const i of items) {
     counts.byShelf[i.shelfId] = (counts.byShelf[i.shelfId] ?? 0) + 1;
     if (shelfId !== ALL_SHELVES && i.shelfId !== shelfId) continue;
     counts.all += 1;
     if (i.loanState === 'lent') counts.lent += 1;
+    if (i.visibility === 'visible') counts.notLending += 1;
     if (i.visibility === 'hidden') counts.hidden += 1;
   }
   return counts;
@@ -67,9 +90,9 @@ export type OwnerStatusTone = 'success' | 'muted' | 'lent' | 'overdue';
 
 export interface OwnerStatus {
   kind: 'available' | 'lent' | 'hidden' | 'visibleOnly' | 'private';
-  /** Full label, e.g. "Lent · back 12 Dec". */
+  /** Full label, e.g. "Out · back 12 Dec" (UX F6: the owner's own view says "Out"). */
   label: string;
-  /** Short label for small grid cards, e.g. "Back 12 Dec". */
+  /** Short label for small grid cards, e.g. "Out · back 12 Dec". */
   short: string;
   tone: OwnerStatusTone;
 }
@@ -91,8 +114,13 @@ export function ownerStatus(
     const overdue = isOverdue(due, now);
     return {
       kind: 'lent',
-      label: due ? `Lent · ${back}` : 'Lent out',
-      short: due ? back.charAt(0).toUpperCase() + back.slice(1) : 'Lent out',
+      label: due ? `Out · ${back}` : 'Out',
+      // F6: the owner's view says "Out" on grid cards too (QA B25).
+      short: !due
+        ? 'Out'
+        : overdue
+          ? back.charAt(0).toUpperCase() + back.slice(1)
+          : `Out · ${back}`,
       tone: overdue ? 'overdue' : 'lent',
     };
   }
@@ -103,7 +131,7 @@ export function ownerStatus(
     return { kind: 'private', label: 'Private collection', short: 'Private', tone: 'muted' };
   }
   if (item.visibility === 'visible') {
-    return { kind: 'visibleOnly', label: 'Visible only', short: 'Visible only', tone: 'muted' };
+    return { kind: 'visibleOnly', label: 'Not lending', short: 'Not lending', tone: 'muted' };
   }
   return { kind: 'available', label: 'Available', short: 'Available', tone: 'success' };
 }

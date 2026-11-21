@@ -1,9 +1,10 @@
 import { Tabs } from 'expo-router/js-tabs';
-import { ArrowLeftRight, Compass, Library, UserRound, type LucideIcon } from 'lucide-react-native';
+import { ArrowLeftRight, House, Library, UserRound, type LucideIcon } from 'lucide-react-native';
 import type { ColorValue } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useMyLoans } from '@/hooks/use-loans';
+import { needsYouBadge } from '@/features/loans/needs-you';
+import { useNeedsYou } from '@/features/loans/use-needs-you';
 import { THEME } from '@/lib/theme';
 
 function tabIcon(icon: LucideIcon) {
@@ -25,7 +26,8 @@ function tabIcon(icon: LucideIcon) {
 export default function TabsLayout() {
   const { colorScheme } = useColorScheme();
   const t = THEME[colorScheme];
-  const { incomingRequests } = useMyLoans();
+  // One badge in the app: the number of Needs-you cards (F5).
+  const { cards } = useNeedsYou();
 
   return (
     <Tabs
@@ -37,14 +39,17 @@ export default function TabsLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Discover', tabBarIcon: tabIcon(Compass) }} />
+      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: tabIcon(House) }} />
       <Tabs.Screen name="my-books" options={{ title: 'My books', tabBarIcon: tabIcon(Library) }} />
       <Tabs.Screen
         name="loans"
         options={{
           title: 'Loans',
           tabBarIcon: tabIcon(ArrowLeftRight),
-          tabBarBadge: incomingRequests.length || undefined,
+          tabBarBadge: needsYouBadge(cards),
+          tabBarAccessibilityLabel: cards.length
+            ? `Loans, ${cards.length} need${cards.length === 1 ? 's' : ''} you`
+            : 'Loans',
           tabBarBadgeStyle: { backgroundColor: t.destructive, color: '#fff', fontSize: 10 },
         }}
       />

@@ -70,6 +70,10 @@ if (USE_EMULATORS && !g.__lendshelfEmulatorsConnected) {
   connectAuthEmulator(auth, `http://${EMULATOR_HOST}:${EMULATOR_PORTS.auth}`, {
     disableWarnings: true,
   });
+  // Dev note (QA F1): the emulator speaks HTTP/1.1, so the browser allows 6 connections to
+  // it across ALL tabs, and each open tab holds its Firestore Listen/Write long-poll streams.
+  // With 4+ tabs on the app, writes queue for 10–40 s. Keep one tab open. Production
+  // Firestore uses HTTP/2 (one multiplexed connection) and native uses gRPC: not affected.
   connectFirestoreEmulator(db, EMULATOR_HOST, EMULATOR_PORTS.firestore);
   connectFunctionsEmulator(functions, EMULATOR_HOST, EMULATOR_PORTS.functions);
   connectStorageEmulator(storage, EMULATOR_HOST, EMULATOR_PORTS.storage);

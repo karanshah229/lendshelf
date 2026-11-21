@@ -157,6 +157,17 @@ mkdir -p dist-apk && cp android/app/build/outputs/apk/release/app-release.apk di
 adb install -r dist-apk/lendshelf-emulator-demo.apk
 ```
 
+**Physical phone over USB (emulator mode, ARM):** the phone reaches the emulators through `adb reverse`, so no Wi-Fi or firewall changes are needed. `firebase.json` sets `react-native.android_bypass_emulator_url_remap` so React Native Firebase doesn't rewrite `127.0.0.1` to `10.0.2.2`.
+
+```bash
+export EXPO_PUBLIC_USE_EMULATORS=1 EXPO_PUBLIC_EMULATOR_HOST=127.0.0.1
+# Windows: the JDK fails with "Unable to establish loopback connection" under the 8.3 temp path
+mkdir -p android/.jtmp && export JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=$(cygpath -w "$PWD/android/.jtmp")"
+(cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a && ./gradlew --stop)
+for p in 9099 8080 5001 9199; do adb -s <serial> reverse tcp:$p tcp:$p; done   # again after every reconnect
+adb -s <serial> install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
 Notes:
 
 - A cold build takes 30+ minutes on a busy machine; incremental builds are around 15 minutes.

@@ -1,12 +1,22 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { BookX, PenLine, ScanBarcode, Search } from 'lucide-react-native';
-import { useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useMemo, useReducer, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 
 import { EmptyState } from '@/components/empty-state';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
-import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { AddedStep } from '@/features/add/components/added-step';
 import type { ScanOutcome } from '@/features/add/components/barcode-camera';
@@ -69,6 +79,12 @@ export default function AddScreen() {
     parseAddMode(param(params.mode)) ?? (Platform.OS === 'web' ? 'search' : 'scan')
   );
   const [step, setStep] = useState<Step>(workIdParam ? { kind: 'work' } : { kind: 'pick' });
+  /** "Type it in" has unsaved text (read on Back only, so a ref). */
+  const manualDraft = useRef(false);
+  const onManualDraft = useCallback((has: boolean) => {
+    manualDraft.current = has;
+  }, []);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [resolvingKey, setResolvingKey] = useState<string | null>(null);
   const [manual, setManual] = useState<{ key: number; prefill: ManualPrefill }>({
     key: 0,
@@ -111,11 +127,11 @@ export default function AddScreen() {
   };
 
   // ---------- Search ----------
-  const pickWork = async (r: OlSearchResult) => {
+  const pickWork = async (r: OlSearchResult, origin: AddMode = 'search') => {
     setResolvingKey(r.workKey);
     try {
       const res = await api.resolveBook({ olWorkKey: r.workKey });
-      setStep({ kind: 'confirm', candidates: [candidateFromResolved(res)], origin: 'search' });
+      setStep({ kind: 'confirm', candidates: [candidateFromResolved(res)], origin });
     } catch (e) {
       toastError(e, 'Couldn’t load that book. Please try again.');
     } finally {
@@ -157,6 +173,9 @@ export default function AddScreen() {
 
   const backFromStep = () => {
     if (step.kind === 'confirm' && step.origin !== 'work') setStep({ kind: 'pick' });
+    // F2: a full-screen task asks before throwing away what was typed (QA B17).
+    else if (step.kind === 'pick' && mode === 'manual' && manualDraft.current)
+      setConfirmLeave(true);
     else close();
   };
 
@@ -220,7 +239,12 @@ export default function AddScreen() {
             key={manual.key}
             prefill={manual.prefill}
             autoFocus={mode === 'manual'}
+            ownedWorkIds={ownedWorkIds}
+            resolvingKey={resolvingKey}
+            // "Is it one of these?" picked a catalogue record instead of the typed book.
+            onPickWork={(r) => void pickWork(r, 'manual')}
             onContinue={(c) => setStep({ kind: 'confirm', candidates: [c], origin: 'manual' })}
+            onDraftChange={onManualDraft}
           />
         </View>
       </View>
@@ -260,6 +284,28 @@ export default function AddScreen() {
           onAddMore={() => setStep({ kind: 'pick' })}
         />
       ) : null}
+      <AlertDialog open={confirmLeave} onOpenChange={setConfirmLeave}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard this book?</AlertDialogTitle>
+            <AlertDialogDescription>What you typed won’t be saved.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              <Text>Keep editing</Text>
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: 'destructive' })}
+              onPress={() => {
+                manualDraft.current = false;
+                close();
+              }}
+            >
+              <Text className="text-white">Discard</Text>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Screen>
   );
 }

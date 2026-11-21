@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { cn } from '@/lib/utils';
@@ -51,7 +51,8 @@ export function Screen({
       {keyboard ? (
         <KeyboardAvoidingView
           className="flex-1"
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          // Android too: edge-to-edge means adjustResize no longer shrinks the window.
+          behavior="padding"
         >
           {content}
         </KeyboardAvoidingView>

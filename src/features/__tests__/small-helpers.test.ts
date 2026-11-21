@@ -9,7 +9,7 @@ import {
   starFills,
   validateReview,
 } from '@/features/reviews/review-logic';
-import { capitalize, initials, joinNames } from '@/features/shared/people';
+import { capitalize, initials, joinNames, shortName } from '@/features/shared/people';
 import { wishlistAvailability } from '@/features/wishlist/availability';
 import type { CopySummary } from '@/features/book/circle-copies';
 
@@ -131,6 +131,27 @@ describe('people', () => {
     expect(initials('Meera  K  Iyer')).toBe('MI');
     expect(initials('')).toBe('?');
     expect(initials(null)).toBe('?');
+    // QA B20: bracketed notes and titles are not initials.
+    expect(initials('Nikhil (neighbour)')).toBe('N');
+    expect(initials('Dr. Mehta')).toBe('M');
+    expect(initials('Mrs. A. Iyer')).toBe('AI');
+  });
+
+  it('shortens names for labels without ending on a title or initial (QA B2)', () => {
+    expect(shortName('Ravi Menon')).toBe('Ravi');
+    expect(shortName('  Asha   Rao ')).toBe('Asha');
+    expect(shortName('Dr. Mehta')).toBe('Dr. Mehta');
+    expect(shortName('Dr Mehta')).toBe('Dr Mehta');
+    expect(shortName('Mrs. A. Iyer')).toBe('Mrs. A. Iyer');
+    expect(shortName('A. Iyer')).toBe('A. Iyer');
+    expect(shortName('Uncle Raj')).toBe('Uncle Raj');
+    expect(shortName('Kabir')).toBe('Kabir');
+    expect(shortName('Dr.')).toBe('Dr.');
+    expect(shortName('Nikhil (neighbour)')).toBe('Nikhil');
+    expect(shortName('')).toBe('');
+    expect(shortName(null)).toBe('');
+    // A number shown instead of a name stays whole.
+    expect(shortName('+91 90000 00002')).toBe('+91 90000 00002');
   });
 
   it('joins names', () => {

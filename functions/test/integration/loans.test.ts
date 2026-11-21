@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addItem,
   addShelf,
+  adminAuth,
   cleanupClients,
   clearEmulators,
   clearPushes,
@@ -17,6 +18,10 @@ import {
 } from "./helpers.js";
 import { COL, watchId, type ItemDoc, type LoanDoc, type WatchDoc } from "../../src/model.js";
 import { Timestamp } from "firebase-admin/firestore";
+import { runDailyMaintenance } from "../../src/handlers/maintenance.js";
+import type { Deps } from "../../src/lib/context.js";
+import { shortDate } from "../../src/lib/loans.js";
+import type { PushMessage } from "../../src/lib/push.js";
 
 let asha: TestUser; // owner
 let ravi: TestUser; // has Asha saved
@@ -210,9 +215,14 @@ describe("recordLoan", () => {
       borrowerPhone: ravi.phone.replace("+91", "0"),
     });
     expect(await getDoc<LoanDoc>(COL.loans, loanId)).toMatchObject({ borrowerUid: ravi.uid, borrowerPhone: ravi.phone });
-    expect((await getDoc<LoanDoc>(COL.loans, reqId))?.status).toBe("declined");
+    expect(await getDoc<LoanDoc>(COL.loans, reqId)).toMatchObject({ status: "declined", declineReason: "lentToSomeoneElse" });
+    expect(await getDoc<WatchDoc>(COL.watches, watchId(meera.uid, "back", itemId))).toMatchObject({
+      uid: meera.uid, type: "back", targetId: itemId, workId: WORK.id, title: "The Hobbit",
+    });
     expect((await pushesTo(ravi.uid)).map((p) => p.title)).toEqual(["Book lent to you"]);
-    expect((await pushesTo(meera.uid)).map((p) => p.title)).toEqual(["Request declined"]);
+    expect((await pushesTo(meera.uid)).map((p) => p.body)).toEqual([
+      "The Hobbit went to someone else. We'll tell you when it's back.",
+    ]);
     // The matched borrower can now mark it returned.
     await ravi.call("markReturned", { loanId });
   });
@@ -258,5 +268,198 @@ describe("pushes only reach people who have the owner saved", () => {
     await asha.call("confirmReturn", { loanId: l2.loanId });
     expect(await pushesTo(meera.uid)).toEqual([]);
     expect(await getDoc(COL.watches, watchId(meera.uid, "back", priv))).toBeUndefined();
+  });
+});
+
+// ---- UX v1.1 backend bundle (B2–B4, B6) -------------------------------------------
+
+/** An accepted request from Ravi for a new copy of Asha's. */
+async function activeLoanFromRequest(): Promise<{ itemId: string; loanId: string }> {
+  const itemId = await addItem(asha.uid);
+  const { loanId } = await ravi.call<RequestRes>("requestLoan", { itemId });
+  await asha.call("respondToRequest", { loanId, accept: true });
+  await clearPushes();
+  return { itemId, loanId };
+}
+
+const watchBackAdmin = (u: TestUser, itemId: string) =>
+  db.collection(COL.watches).doc(watchId(u.uid, "back", itemId)).set({
+    uid: u.uid, type: "back", targetId: itemId, workId: WORK.id, title: "The Hobbit", createdAt: Timestamp.now(),
+  } satisfies WatchDoc);
+
+describe("B4: decline reasons", () => {
+  it("accepting one request declines the other as lentToSomeoneElse, with a back-watch and matching push", async () => {
+    const itemId = await addItem(asha.uid);
+    const { loanId: raviReq } = await ravi.call<RequestRes>("requestLoan", { itemId });
+    const { loanId: meeraReq } = await meera.call<RequestRes>("requestLoan", { itemId });
+    await clearPushes();
+    await asha.call("respondToRequest", { loanId: raviReq, accept: true });
+
+    expect(await getDoc<LoanDoc>(COL.loans, meeraReq)).toMatchObject({ status: "declined", declineReason: "lentToSomeoneElse" });
+    expect((await getDoc<LoanDoc>(COL.loans, raviReq))?.declineReason).toBeUndefined();
+    expect(await getDoc<WatchDoc>(COL.watches, watchId(meera.uid, "back", itemId))).toMatchObject({
+      uid: meera.uid, type: "back", targetId: itemId, workId: WORK.id, title: "The Hobbit",
+    });
+    const pushes = await pushesTo(meera.uid);
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]).toMatchObject({
+      title: "Request declined",
+      body: "The Hobbit went to someone else. We'll tell you when it's back.",
+      data: { type: "requestDeclined", loanId: meeraReq, reason: "lentToSomeoneElse" },
+    });
+  });
+
+  it("stores the owner's reason and uses its text", async () => {
+    const cases = [
+      ["readingIt", "Asha Rao is reading The Hobbit right now."],
+      ["notLending", "Asha Rao isn't lending The Hobbit at the moment."],
+      [null, "Asha Rao can't lend The Hobbit right now."],
+    ] as const;
+    for (const [reason, body] of cases) {
+      const itemId = await addItem(asha.uid);
+      const { loanId } = await ravi.call<RequestRes>("requestLoan", { itemId });
+      await clearPushes();
+      await asha.call("respondToRequest", { loanId, accept: false, reason });
+      expect(await getDoc<LoanDoc>(COL.loans, loanId)).toMatchObject({ status: "declined", declineReason: reason });
+      expect((await pushesTo(ravi.uid)).map((p) => p.body)).toEqual([body]);
+      expect(await getDoc(COL.watches, watchId(ravi.uid, "back", itemId))).toBeUndefined();
+    }
+  });
+
+  it("declining by hand with lentToSomeoneElse also creates the back-watch; bad reasons are rejected", async () => {
+    const itemId = await addItem(asha.uid);
+    const { loanId } = await ravi.call<RequestRes>("requestLoan", { itemId });
+    await expectCode(asha.call("respondToRequest", { loanId, accept: false, reason: "busy" }), "invalid-argument");
+    await asha.call("respondToRequest", { loanId, accept: false, reason: "lentToSomeoneElse" });
+    expect((await getDoc<LoanDoc>(COL.loans, loanId))?.declineReason).toBe("lentToSomeoneElse");
+    expect(await getDoc(COL.watches, watchId(ravi.uid, "back", itemId))).toBeDefined();
+  });
+});
+
+describe("B2: confirmReturn reason notCollected", () => {
+  it("closes an uncollected loan: copy available, cancelled/notCollected, no review prompt, watchers told 'available again'", async () => {
+    const { itemId, loanId } = await activeLoanFromRequest();
+    await watchBackAdmin(meera, itemId);
+
+    await expectCode(ravi.call("confirmReturn", { loanId, reason: "notCollected" }), "permission-denied", /Only the owner/);
+    await expectCode(asha.call("confirmReturn", { loanId, reason: "lost" }), "invalid-argument");
+    await asha.call("confirmReturn", { loanId, reason: "notCollected" });
+
+    expect(await getDoc<LoanDoc>(COL.loans, loanId)).toMatchObject({
+      status: "cancelled", closedReason: "notCollected", returnedAt: null,
+    });
+    expect(await getDoc<ItemDoc>(COL.items, itemId)).toMatchObject({ loanState: "available", activeLoanId: null, dueDate: null });
+    expect(await pushesTo(ravi.uid)).toEqual([]);
+    const meeraPushes = await pushesTo(meera.uid);
+    expect(meeraPushes).toHaveLength(1);
+    expect(meeraPushes[0]).toMatchObject({
+      title: "Available again",
+      body: "The Hobbit is available again.",
+      data: { type: "availableAgain", itemId },
+    });
+    expect(await getDoc(COL.watches, watchId(meera.uid, "back", itemId))).toBeUndefined();
+    // Closed: it can't be returned or closed again.
+    await expectCode(asha.call("confirmReturn", { loanId }), "failed-precondition");
+  });
+
+  it("only for active loans; reason 'returned' is the normal return", async () => {
+    const { loanId } = await activeLoanFromRequest();
+    await ravi.call("markReturned", { loanId });
+    await expectCode(asha.call("confirmReturn", { loanId, reason: "notCollected" }), "failed-precondition", /not collected/);
+    await asha.call("confirmReturn", { loanId, reason: "returned" });
+    const loan = await getDoc<LoanDoc>(COL.loans, loanId);
+    expect(loan?.status).toBe("returned");
+    expect(loan?.closedReason).toBeUndefined();
+    expect((await pushesTo(ravi.uid)).map((p) => p.title)).toEqual(["How was it?"]);
+  });
+});
+
+describe("B3: markNotReturned", () => {
+  it("returnPending -> active, clears returnMarkedAt, tells the borrower, and reminders resume", async () => {
+    const { loanId } = await activeLoanFromRequest();
+    await ravi.call("markReturned", { loanId });
+    await clearPushes();
+
+    await expectCode(ravi.call("markNotReturned", { loanId }), "permission-denied", /Only the owner/);
+    await expect(asha.call("markNotReturned", { loanId })).resolves.toEqual({ ok: true });
+    const loan = await getDoc<LoanDoc>(COL.loans, loanId);
+    expect(loan?.status).toBe("active");
+    expect(loan?.returnMarkedAt).toBeNull();
+    expect(loan?.notBackYetAt).toBeInstanceOf(Timestamp);
+    const pushes = await pushesTo(ravi.uid);
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]).toMatchObject({
+      title: "Not back yet",
+      body: "Asha Rao hasn't got The Hobbit back yet.",
+      data: { type: "notBackYet", loanId },
+    });
+    await expectCode(asha.call("markNotReturned", { loanId }), "failed-precondition", /an active loan/);
+
+    // Past due: the next daily run sends the overdue reminders again.
+    await db.collection(COL.loans).doc(loanId).update({ dueDate: Timestamp.fromMillis(Date.now() - 2 * 3_600_000) });
+    const sent: { uids: string[]; message: PushMessage }[] = [];
+    const deps: Deps = {
+      db,
+      auth: adminAuth,
+      now: () => new Date(),
+      fetch: vi.fn() as unknown as Deps["fetch"],
+      deleteUserFiles: async () => undefined,
+      push: async (uids, message) => {
+        sent.push({ uids, message });
+        return { uids, tokenCount: 0, outcome: "recorded" };
+      },
+    };
+    await runDailyMaintenance(deps);
+    const mine = sent.filter((x) => x.message.data?.loanId === loanId);
+    expect(mine.map((x) => `${x.message.data?.type}:${x.message.data?.role}:${x.uids.join()}`).sort()).toEqual([
+      `overdue:borrower:${ravi.uid}`,
+      `overdue:owner:${asha.uid}`,
+    ]);
+  });
+
+  it("notBackYetAt is cleared when the borrower marks it returned again, and on confirm", async () => {
+    const { loanId } = await activeLoanFromRequest();
+    await ravi.call("markReturned", { loanId });
+    await asha.call("markNotReturned", { loanId });
+    expect((await getDoc<LoanDoc>(COL.loans, loanId))?.notBackYetAt).toBeInstanceOf(Timestamp);
+
+    await ravi.call("markReturned", { loanId });
+    let loan = await getDoc<LoanDoc>(COL.loans, loanId);
+    expect(loan?.status).toBe("returnPending");
+    expect(loan?.notBackYetAt).toBeNull();
+
+    await asha.call("markNotReturned", { loanId });
+    await asha.call("confirmReturn", { loanId });
+    loan = await getDoc<LoanDoc>(COL.loans, loanId);
+    expect(loan?.status).toBe("returned");
+    expect(loan?.notBackYetAt).toBeNull();
+  });
+});
+
+describe("B6: updateDueDate tells the borrower", () => {
+  it("pushes dueChanged to a borrower who has the owner saved, not to one who doesn't", async () => {
+    const { loanId } = await activeLoanFromRequest();
+    const due = new Date(Date.now() + 28 * DAY);
+    await asha.call("updateDueDate", { loanId, dueDate: due.toISOString() });
+    const moved = await getDoc<LoanDoc>(COL.loans, loanId);
+    expect(moved?.dueChangedAt).toBeInstanceOf(Timestamp);
+    // The accept-time due date is kept for the timeline (D4).
+    expect(moved?.firstDueDate).toBeInstanceOf(Timestamp);
+    expect(moved?.firstDueDate?.toMillis()).not.toBe(moved?.dueDate?.toMillis());
+    const pushes = await pushesTo(ravi.uid);
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]).toMatchObject({
+      title: "Due date changed",
+      body: `Asha Rao changed the due date for The Hobbit to ${shortDate(due)}.`,
+      data: { type: "dueChanged", loanId },
+    });
+
+    // Kabir doesn't have Asha saved (DECISIONS #23).
+    const itemId = await addItem(asha.uid);
+    const { loanId: toKabir } = await asha.call<{ loanId: string }>("recordLoan", {
+      itemId, borrowerName: "Kabir", borrowerPhone: kabir.phone,
+    });
+    await asha.call("updateDueDate", { loanId: toKabir, dueDate: due.toISOString() });
+    expect(await pushesTo(kabir.uid)).toEqual([]);
   });
 });

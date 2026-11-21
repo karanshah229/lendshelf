@@ -94,7 +94,9 @@ function DialogContent({
                 web: 'ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 data-[state=open]:bg-accent',
               })
             )}
-            hitSlop={12}
+            // 16 dp icon, 48 dp touch target (UX §F8).
+            hitSlop={17}
+            accessibilityLabel="Close"
           >
             <Icon
               as={X}

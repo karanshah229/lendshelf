@@ -2,6 +2,7 @@
  * Open Library title/author search, called directly from the app (no key needed).
  * Picking a result goes through `api.resolveBook({ olWorkKey })`, which creates the Book.
  */
+import { likelyCatalogueMatches } from '@/lib/search';
 
 export const OL_SEARCH_URL = 'https://openlibrary.org/search.json';
 const FIELDS = 'key,title,author_name,cover_i,first_publish_year,isbn,edition_count';
@@ -69,4 +70,32 @@ export async function searchOpenLibrary(
   const res = await fetch(olSearchUrl(query), { signal, headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Open Library search failed (${res.status})`);
   return parseOlSearch(await res.json());
+}
+
+/**
+ * "Is it one of these?" before saving a hand-entered book (C13, E8): catalogue records with the
+ * same main title as what was typed (summaries and guides left out), matching authors first.
+ * Searches "title author" first and falls back to the title alone. Throws on network errors.
+ */
+export async function findCatalogueMatches(
+  typed: { title: string; authors: readonly string[] },
+  {
+    signal,
+    search = searchOpenLibrary,
+    limit = 3,
+  }: {
+    signal?: AbortSignal;
+    search?: (query: string, signal?: AbortSignal) => Promise<OlSearchResult[]>;
+    limit?: number;
+  } = {}
+): Promise<OlSearchResult[]> {
+  const title = typed.title.trim();
+  if (!title) return [];
+  const author = typed.authors[0]?.trim();
+  const queries = author ? [`${title} ${author}`, title] : [title];
+  for (const q of queries) {
+    const matches = likelyCatalogueMatches(await search(q, signal), typed, limit);
+    if (matches.length) return matches;
+  }
+  return [];
 }

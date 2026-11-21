@@ -14,6 +14,7 @@ import {
   type TestUser,
 } from "./helpers.js";
 import { COL, defaultShelfId, linkId, type ItemDoc, type LinkDoc, type ShelfDoc } from "../../src/model.js";
+import { Timestamp } from "firebase-admin/firestore";
 
 let asha: TestUser;
 let ravi: TestUser;
@@ -33,7 +34,7 @@ afterAll(async () => {
 });
 
 describe("syncContacts", () => {
-  type Res = { links: { ownerId: string; ownerPhone: string; name: string | null }[] };
+  type Res = { links: { ownerId: string; ownerPhone: string; name: string | null }[]; skippedRemovals: number };
 
   it("links matched app users (excluding self), one-way, with names", async () => {
     const raviLocal = ravi.phone.replace("+91", ""); // as typed in an address book
@@ -44,6 +45,7 @@ describe("syncContacts", () => {
       { ownerId: meera.uid, ownerPhone: meera.phone, name: "Meera Iyer" },
       { ownerId: ravi.uid, ownerPhone: ravi.phone, name: "Ravi Menon" },
     ]);
+    expect(res.skippedRemovals).toBe(0);
     const link = await getDoc<LinkDoc>(COL.links, linkId(asha.uid, ravi.uid));
     expect(link).toMatchObject({ viewerId: asha.uid, ownerId: ravi.uid, ownerPhone: ravi.phone });
     // One-way: Ravi has not saved Asha.
@@ -58,10 +60,51 @@ describe("syncContacts", () => {
     expect(await getDoc(COL.links, linkId(asha.uid, ravi.uid))).toBeUndefined();
     const after = await getDoc<LinkDoc>(COL.links, linkId(asha.uid, meera.uid));
     expect(after?.createdAt.toMillis()).toBe(before?.createdAt.toMillis());
-    // Empty sync removes everything.
-    await asha.call("syncContacts", { phones: [] });
+    // An empty sync would remove all (more than half): the guard keeps the link...
+    const guarded = await asha.call<Res>("syncContacts", { phones: [] });
+    expect(guarded).toEqual({ links: [{ ownerId: meera.uid, ownerPhone: meera.phone, name: "Meera Iyer" }], skippedRemovals: 1 });
+    expect(await getDoc(COL.links, linkId(asha.uid, meera.uid))).toBeDefined();
+    // ...unless the caller asks to replace.
+    await asha.call("syncContacts", { phones: [], replace: true });
     const left = await db.collection(COL.links).where("viewerId", "==", asha.uid).get();
     expect(left.size).toBe(0);
+  });
+
+  it("shrink guard: won't remove more than half of the links without replace (B1)", async () => {
+    // 10 app users Meera has saved (phoneIndex + links written directly; no Auth users needed).
+    const owners = Array.from({ length: 10 }, (_, i) => ({ uid: `shrink${i}`, phone: `+9197770000${String(i).padStart(2, "0")}` }));
+    await Promise.all(owners.map((o) => db.collection(COL.phoneIndex).doc(o.phone).set({ uid: o.uid })));
+    await Promise.all(
+      owners.map((o) =>
+        db.collection(COL.links).doc(linkId(meera.uid, o.uid)).set({
+          viewerId: meera.uid, ownerId: o.uid, ownerPhone: o.phone, createdAt: Timestamp.now(),
+        } satisfies LinkDoc),
+      ),
+    );
+    const meeraLinks = async () => (await db.collection(COL.links).where("viewerId", "==", meera.uid).get()).size;
+    const three = owners.slice(0, 3).map((o) => o.phone);
+
+    const guarded = await meera.call<Res>("syncContacts", { phones: three });
+    expect(guarded.skippedRemovals).toBe(7);
+    expect(guarded.links).toHaveLength(10);
+    expect(await meeraLinks()).toBe(10);
+
+    // Adding a new match still works while removals are held back.
+    const withRavi = await meera.call<Res>("syncContacts", { phones: [...three, ravi.phone] });
+    expect(withRavi.skippedRemovals).toBe(7);
+    expect(await getDoc(COL.links, linkId(meera.uid, ravi.uid))).toBeDefined();
+    expect(await meeraLinks()).toBe(11);
+
+    const replaced = await meera.call<Res>("syncContacts", { phones: three, replace: true });
+    expect(replaced.skippedRemovals).toBe(0);
+    expect(replaced.links.map((l) => l.ownerId).sort()).toEqual(["shrink0", "shrink1", "shrink2"]);
+    expect(await meeraLinks()).toBe(3);
+
+    // Removing exactly half (or less) needs no replace.
+    const half = await meera.call<Res>("syncContacts", { phones: owners.slice(0, 2).map((o) => o.phone) });
+    expect(half.skippedRemovals).toBe(0);
+    expect(await meeraLinks()).toBe(2);
+    await expectCode(meera.call("syncContacts", { phones: [], replace: "yes" }), "invalid-argument");
   });
 
   it("validates input", async () => {

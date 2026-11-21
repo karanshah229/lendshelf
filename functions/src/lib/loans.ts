@@ -14,7 +14,10 @@ export type LoanAction =
   | "expire"
   | "markReturned"
   | "confirmReturn"
-  | "updateDueDate";
+  | "notCollected"
+  | "markNotReturned"
+  | "updateDueDate"
+  | "ownerLeave";
 
 export type LoanActor = "owner" | "borrower" | "system";
 
@@ -32,7 +35,13 @@ export const TRANSITIONS: Readonly<Record<LoanAction, Transition>> = {
   expire: { from: ["requested"], to: "expired", actor: "system" },
   markReturned: { from: ["active"], to: "returnPending", actor: "borrower" },
   confirmReturn: { from: ["active", "returnPending"], to: "returned", actor: "owner" },
+  /** confirmReturn({ reason: "notCollected" }): the borrower never picked it up. */
+  notCollected: { from: ["active"], to: "cancelled", actor: "owner" },
+  /** "Not back yet": the owner disputes the borrower's "I've returned it". */
+  markNotReturned: { from: ["returnPending"], to: "active", actor: "owner" },
   updateDueDate: { from: ["active"], to: null, actor: "owner" },
+  /** deleteAccount: the owner left while the borrower had the book. */
+  ownerLeave: { from: ["active", "returnPending"], to: "ownerLeft", actor: "system" },
 };
 
 const STATUS_WORDS: Record<LoanStatus, string> = {
@@ -43,6 +52,7 @@ const STATUS_WORDS: Record<LoanStatus, string> = {
   active: "an active loan",
   returnPending: "waiting for the owner to confirm the return",
   returned: "already returned",
+  ownerLeft: "closed because the owner left LendShelf",
 };
 
 export function isOpenStatus(status: LoanStatus): boolean {
@@ -72,7 +82,10 @@ const ACTION_WORDS: Record<LoanAction, string> = {
   expire: "expire this request",
   markReturned: "mark this book as returned",
   confirmReturn: "confirm the return",
+  notCollected: "close this loan as not collected",
+  markNotReturned: "say the book isn't back yet",
   updateDueDate: "change the due date",
+  ownerLeave: "close this loan",
 };
 
 /** The caller's role on a loan. */

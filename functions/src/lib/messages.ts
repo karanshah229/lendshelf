@@ -1,6 +1,20 @@
 /** Push notification texts. Pure functions; `data.type` lets the app route taps. */
 import type { PushMessage } from "./push.js";
 import { daysUntil, shortDate } from "./loans.js";
+import type { DeclineReason } from "../model.js";
+
+function declineBody(ownerName: string, title: string, reason: DeclineReason | null): string {
+  switch (reason) {
+    case "readingIt":
+      return `${ownerName} is reading ${title} right now.`;
+    case "notLending":
+      return `${ownerName} isn't lending ${title} at the moment.`;
+    case "lentToSomeoneElse":
+      return `${title} went to someone else. We'll tell you when it's back.`;
+    default:
+      return `${ownerName} can't lend ${title} right now.`;
+  }
+}
 
 export const msg = {
   loanRequested: (borrowerName: string, title: string, loanId: string): PushMessage => ({
@@ -13,10 +27,11 @@ export const msg = {
     body: `${ownerName} is lending you ${title}. Due back ${shortDate(due)}.`,
     data: { type: "requestAccepted", loanId },
   }),
-  requestDeclined: (ownerName: string, title: string, loanId: string): PushMessage => ({
+  /** Text depends on the reason; `data.reason` is set when there is one. */
+  requestDeclined: (ownerName: string, title: string, loanId: string, reason?: DeclineReason | null): PushMessage => ({
     title: "Request declined",
-    body: `${ownerName} can't lend ${title} right now.`,
-    data: { type: "requestDeclined", loanId },
+    body: declineBody(ownerName, title, reason ?? null),
+    data: reason ? { type: "requestDeclined", loanId, reason } : { type: "requestDeclined", loanId },
   }),
   lentToYou: (ownerName: string, title: string, loanId: string, due: Date): PushMessage => ({
     title: "Book lent to you",
@@ -71,5 +86,28 @@ export const msg = {
     title: "Overdue",
     body: `${borrowerName} still has ${title} (due ${shortDate(due)}). Send a nudge?`,
     data: { type: "overdue", loanId, role: "owner" },
+  }),
+  /** To back-watchers when a loan is closed as not collected (instead of itemBack). */
+  availableAgain: (title: string, itemId: string): PushMessage => ({
+    title: "Available again",
+    body: `${title} is available again.`,
+    data: { type: "availableAgain", itemId },
+  }),
+  /** To the borrower when the owner says "Not back yet" (returnPending -> active). */
+  notBackYet: (ownerName: string, title: string, loanId: string): PushMessage => ({
+    title: "Not back yet",
+    body: `${ownerName} hasn't got ${title} back yet.`,
+    data: { type: "notBackYet", loanId },
+  }),
+  dueChanged: (ownerName: string, title: string, loanId: string, due: Date): PushMessage => ({
+    title: "Due date changed",
+    body: `${ownerName} changed the due date for ${title} to ${shortDate(due)}.`,
+    data: { type: "dueChanged", loanId },
+  }),
+  /** To the borrower when the owner deletes their account while the borrower has the book. */
+  ownerLeft: (ownerName: string, title: string, loanId: string): PushMessage => ({
+    title: `${ownerName} left LendShelf`,
+    body: `If you still have ${title}, message them on WhatsApp if you still have their number.`,
+    data: { type: "ownerLeft", loanId },
   }),
 };

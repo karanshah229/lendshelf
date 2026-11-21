@@ -1,3 +1,4 @@
+import type { DocumentReference } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { z } from "zod";
 import { trackedBulkWriter } from "../lib/bulk.js";
@@ -10,6 +11,8 @@ import { COL, linkId, type LinkDoc, type PhoneIndexDoc, type ProfileDoc } from "
 
 export const syncContactsSchema = z.object({
   phones: z.array(z.string().max(40)).max(5000, "At most 5000 phone numbers per sync"),
+  /** Allow removing more than half of the existing links (a deliberate "Sync now"). */
+  replace: z.boolean().optional(),
 });
 
 export interface SyncedLink {
@@ -19,14 +22,26 @@ export interface SyncedLink {
   name: string | null;
 }
 
+export interface SyncContactsResult {
+  /** The caller's links after the sync (matches, plus any kept by the shrink guard). */
+  links: SyncedLink[];
+  /** Links that would have been removed but were kept by the shrink guard (0 normally). */
+  skippedRemovals: number;
+}
+
 /**
  * Replace the caller's links with the app users found among `phones`.
  * One-way: only `links/{caller}_{owner}` docs are written. The phone list
  * itself is never stored. Limited to 20 calls per user per rolling 24 hours
  * (phone-number probing), counted in `rateLimits/{uid}`.
+ *
+ * Shrink guard: without `replace: true`, a sync that would remove more than
+ * half of the existing links (e.g. a half-restored address book on a new
+ * phone) still adds and updates matches but removes nothing, and reports the
+ * number kept as `skippedRemovals`.
  */
-export async function syncContacts(deps: Deps, caller: Caller, data: unknown): Promise<{ links: SyncedLink[] }> {
-  const { phones } = parseInput(syncContactsSchema, data);
+export async function syncContacts(deps: Deps, caller: Caller, data: unknown): Promise<SyncContactsResult> {
+  const { phones, replace } = parseInput(syncContactsSchema, data);
   const { db } = deps;
   const uid = caller.uid;
   await consumeQuota(db, uid, SYNC_CONTACTS_QUOTA, deps.now());
@@ -48,12 +63,20 @@ export async function syncContacts(deps: Deps, caller: Caller, data: unknown): P
   const now = ts(deps.now());
   const writer = trackedBulkWriter(db);
   const existingOwners = new Set<string>();
+  const removals: { ref: DocumentReference; link: LinkDoc }[] = [];
   for (const d of existing.docs) {
     const link = d.data() as LinkDoc;
     existingOwners.add(link.ownerId);
     const phone = matches.get(link.ownerId);
-    if (phone === undefined) writer.delete(d.ref);
+    if (phone === undefined) removals.push({ ref: d.ref, link });
     else if (phone !== link.ownerPhone) writer.update(d.ref, { ownerPhone: phone });
+  }
+  const guarded = replace !== true && removals.length * 2 > existing.size;
+  const kept = guarded ? removals.map((r) => r.link) : [];
+  if (guarded) {
+    logger.info("syncContacts: shrink guard kept links", { uid, existing: existing.size, skippedRemovals: removals.length });
+  } else {
+    removals.forEach((r) => writer.delete(r.ref));
   }
   for (const [ownerId, ownerPhone] of matches) {
     if (existingOwners.has(ownerId)) continue;
@@ -69,7 +92,9 @@ export async function syncContacts(deps: Deps, caller: Caller, data: unknown): P
     });
   }
 
-  const owners = [...matches.keys()];
+  const phoneOf = new Map(matches);
+  for (const k of kept) phoneOf.set(k.ownerId, k.ownerPhone);
+  const owners = [...phoneOf.keys()];
   const names = new Map<string, string>();
   for (const part of chunk(owners, 300)) {
     if (part.length === 0) continue;
@@ -81,7 +106,7 @@ export async function syncContacts(deps: Deps, caller: Caller, data: unknown): P
   }
 
   const links = owners
-    .map((ownerId) => ({ ownerId, ownerPhone: matches.get(ownerId) as string, name: names.get(ownerId) ?? null }))
+    .map((ownerId) => ({ ownerId, ownerPhone: phoneOf.get(ownerId) as string, name: names.get(ownerId) ?? null }))
     .sort((a, b) => (a.name ?? "￿").localeCompare(b.name ?? "￿"));
-  return { links };
+  return { links, skippedRemovals: kept.length };
 }

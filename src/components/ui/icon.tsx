@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import type { LucideIcon, LucideProps } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import * as React from 'react';
+import { Platform } from 'react-native';
 
 type IconProps = LucideProps & {
   as: LucideIcon;
@@ -42,6 +43,12 @@ cssInterop(IconImpl, {
  * @param {number} size - Icon size (defaults to 14).
  * @param {...LucideProps} ...props - Additional Lucide icon props passed to the "as" icon.
  */
+/** Hides an icon from screen readers: `aria-hidden` on web, the native props elsewhere. */
+const DECORATIVE: Partial<LucideProps> =
+  Platform.OS === 'web'
+    ? { 'aria-hidden': true }
+    : { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' };
+
 function Icon({ as: IconComponent, className, size = 14, ...props }: IconProps) {
   const textClass = React.useContext(TextClassContext);
   return (
@@ -49,6 +56,9 @@ function Icon({ as: IconComponent, className, size = 14, ...props }: IconProps) 
       as={IconComponent}
       className={cn('text-foreground', textClass, className)}
       size={size}
+      // Icons are decorative: the words next to them, or the button's label, carry the meaning
+      // (UX §F8). Override DECORATIVE for an icon that must be read on its own.
+      {...DECORATIVE}
       {...props}
     />
   );

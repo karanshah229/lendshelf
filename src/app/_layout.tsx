@@ -4,16 +4,22 @@ import { PortalHost } from '@rn-primitives/portal';
 import { SplashScreen, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { FadeIn, FadeOut } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Toaster } from 'sonner-native';
 
 import { SessionBootstrap } from '@/components/session-bootstrap';
 import { useApplyTheme, useColorScheme } from '@/hooks/use-color-scheme';
+import { useNotificationRouting } from '@/hooks/use-notification-routing';
+import { useKeepPendingLink } from '@/hooks/use-pending-href';
 import { NAV_THEME } from '@/lib/theme';
-import { useContactsHydrated, useContactsStore } from '@/stores/contacts';
-import { selectStatus, useSessionStore } from '@/stores/session';
+import { isOnboarded, useContactsHydrated, useContactsStore } from '@/stores/contacts';
+import { appGuardRedirect, selectStatus, useSessionStore } from '@/stores/session';
+
+const WEB_TOAST_ANIMATION =
+  Platform.OS === 'web' ? { enter: FadeIn.duration(200), exit: FadeOut.duration(150) } : undefined;
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -32,6 +38,11 @@ export default function RootLayout() {
           <RootNavigator />
           <Toaster
             position="top-center"
+            // Below the screen header, so a toast never covers Back (QA B24).
+            offset={56}
+            // Reanimated on web only runs predefined layout animations; sonner's custom worklets
+            // log "Couldn't load entering/exiting animation" for every toast (QA B23).
+            animation={WEB_TOAST_ANIMATION}
             richColors
             theme={isDark ? 'dark' : 'light'}
             duration={3500}
@@ -54,7 +65,7 @@ function RootNavigator() {
   const status = useSessionStore(selectStatus);
   const uid = useSessionStore((s) => s.user?.uid);
   const hydrated = useContactsHydrated();
-  const onboarded = useContactsStore((s) => (uid ? !!s.onboarded[uid] : false));
+  const onboarded = useContactsStore((s) => isOnboarded(s.onboarded, uid));
 
   const loading = status === 'loading' || !hydrated;
   const ready = status === 'ready';
@@ -62,6 +73,14 @@ function RootNavigator() {
   // Without a target, a screen whose guard fails falls back to the first allowed route in
   // sorted order, which is (auth)/code: signing out flashed the Code screen before /phone.
   const signedOutTo = status === 'signedOut' ? '/phone' : undefined;
+  // A plain target, so no stray `?loanId=` from the blocked route (see appGuardRedirect).
+  const appRedirect = appGuardRedirect(status, needsContacts);
+
+  // Push taps and links that arrive before the app is usable are kept and opened afterwards.
+  useNotificationRouting();
+  useKeepPendingLink(
+    loading ? true : !(status === 'signedOut' || status === 'needsProfile' || needsContacts)
+  );
 
   useEffect(() => {
     if (!loading) void SplashScreen.hideAsync();
@@ -84,7 +103,7 @@ function RootNavigator() {
       <Stack.Protected guard={status === 'needsProfile'} redirectTo={signedOutTo}>
         <Stack.Screen name="(onboarding)/name" />
       </Stack.Protected>
-      <Stack.Protected guard={ready && !needsContacts} redirectTo={signedOutTo}>
+      <Stack.Protected guard={ready && !needsContacts} redirectTo={appRedirect}>
         <Stack.Screen name="(app)" />
       </Stack.Protected>
       <Stack.Protected guard={ready} redirectTo={signedOutTo}>

@@ -28,7 +28,10 @@ export function SectionHeader({
   return (
     <View className={cn('mb-2 flex-row items-end justify-between gap-3 px-1', className)}>
       <View className="flex-1 gap-0.5">
-        <Text className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <Text
+          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+          role="heading"
+        >
           {title}
         </Text>
         {description ? <Text className="text-xs text-muted-foreground">{description}</Text> : null}
@@ -56,7 +59,8 @@ export function PersonAvatar({
 }) {
   const s = AVATAR_SIZES[size];
   return (
-    <Avatar alt={name} className={cn(s.box, className)}>
+    // Decorative initials: the name is always written beside it (F8).
+    <Avatar alt={name} className={cn(s.box, className)} aria-hidden>
       <AvatarFallback>
         <Text className={cn('font-semibold text-muted-foreground', s.text)}>{initials(name)}</Text>
       </AvatarFallback>

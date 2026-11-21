@@ -13,7 +13,7 @@
 	<key>REVERSED_CLIENT_ID</key>
 	<string>com.googleusercontent.apps.000000000000-placeholder</string>
 	<key>API_KEY</key>
-	<string>AIzaSyDEMO-PLACEHOLDER-KEY-for-emulators-only</string>
+	<string>AIzaSyDEMO-PLACEHOLDER-KEY-emulators-on</string>
 	<key>GCM_SENDER_ID</key>
 	<string>000000000000</string>
 	<key>PLIST_VERSION</key>

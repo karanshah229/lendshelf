@@ -40,7 +40,7 @@ export default function NameScreen() {
     <AuthShell
       icon={UserRound}
       title="What’s your name?"
-      description="This is how people who haven’t saved your number see you. Friends who have your number see the name they saved."
+      description="People see this on your requests until they save your number. Friends who have your number see the name they saved."
       step={{ current: 3, total: 4 }}
       back={false}
       footer={

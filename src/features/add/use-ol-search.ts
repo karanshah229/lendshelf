@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { rankCatalogueResults } from '@/lib/search';
+
 import { searchOpenLibrary, type OlSearchResult } from './open-library';
 
 export interface OlSearchState {
@@ -14,7 +16,8 @@ const MIN_CHARS = 2;
 const DEBOUNCE_MS = 400;
 
 /**
- * Debounced Open Library search. Stale responses are dropped (each new query aborts the
+ * Debounced Open Library search. Results are re-ranked so exact title + author matches come
+ * first and summaries / study guides sink (C13). Stale responses are dropped (each new query aborts the
  * previous request). `retry()` re-runs the current query.
  */
 export function useOlSearch(raw: string): OlSearchState & { retry(): void } {
@@ -32,7 +35,14 @@ export function useOlSearch(raw: string): OlSearchState & { retry(): void } {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       searchOpenLibrary(query, controller.signal)
-        .then((results) => setState({ query, results, error: null, done: true }))
+        .then((results) =>
+          setState({
+            query,
+            results: rankCatalogueResults(results, query),
+            error: null,
+            done: true,
+          })
+        )
         .catch((e: unknown) => {
           if (controller.signal.aborted) return;
           setState({

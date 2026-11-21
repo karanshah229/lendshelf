@@ -1,181 +1,99 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
+  ArrowLeftRight,
   ChevronDown,
   ChevronUp,
   History,
-  Inbox,
-  type LucideIcon,
+  PackageCheck,
+  Send,
+  UserPlus,
+  MessageCircle,
 } from 'lucide-react-native';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 
+import { BookCover } from '@/components/book-cover';
 import { EmptyState, LoadErrorState } from '@/components/empty-state';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import {
-  bucketLoans,
-  canOpenCopy,
-  initialSegment,
-  type LoanSegment,
+  filterHistory,
+  loanStatusLabel,
+  openRowLine,
+  recentLine,
+  requestRowLine,
+  type HistoryFilter,
 } from '@/features/loans/buckets';
-import { DueDateDialog } from '@/features/loans/due-date-dialog';
-import { dueDateParam } from '@/features/loans/due-dates';
-import {
-  BorrowedCard,
-  HistoryRow,
-  IncomingRequestCard,
-  LentCard,
-  OutgoingRequestCard,
-} from '@/features/loans/loan-cards';
-import {
-  openWhatsApp,
-  requestFollowUpMessage,
-  requestReplyMessage,
-} from '@/features/loans/messages';
-import { Segmented } from '@/features/loans/segmented';
-import { useLinkMap } from '@/hooks/use-links';
+import { loansEmptyCopy, type LoansEmptyAction } from '@/features/first-run/first-run';
+import { goFindABook } from '@/features/home/search-focus';
+import { useInvite } from '@/features/invite/use-invite';
+import { useLoanSheets } from '@/features/loans/loan-sheets';
+import { notBackYetReplyMessage, openWhatsApp } from '@/features/loans/messages';
+import { NeedsYouList, openLoan } from '@/features/loans/needs-you-card';
+import { useLoanPeople } from '@/features/loans/use-loan-people';
+import { useNeedsYou } from '@/features/loans/use-needs-you';
+import { backAroundFor } from '@/features/loans/requests';
+import { shortName } from '@/features/shared/people';
+import { useItem, useMyItems } from '@/hooks/use-items';
+import { useLinks } from '@/hooks/use-links';
 import { useMyLoans } from '@/hooks/use-loans';
-import { api } from '@/lib/api';
+import { useWatches } from '@/hooks/use-watches';
 import { formatShortDate } from '@/lib/dates';
-import { errorCode } from '@/lib/errors';
-import { toast, toastError } from '@/lib/toast';
-import { nudgeMessage, returnMessage } from '@/lib/whatsapp';
-import { useSessionStore } from '@/stores/session';
+import { cn } from '@/lib/utils';
 import type { Loan, WithId } from '@/types/model';
 
 type L = WithId<Loan>;
 
-const SEGMENTS: readonly LoanSegment[] = ['requests', 'lent', 'borrowed'];
 const HISTORY_PAGE = 15;
-
-type DueDialog = { loan: L; mode: 'accept' | 'change' } | null;
+const HISTORY_FILTERS: { value: HistoryFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'lent', label: 'Lent' },
+  { value: 'borrowed', label: 'Borrowed' },
+  { value: 'requests', label: 'Requests' },
+];
 
 function SectionTitle({ children, count }: { children: string; count?: number }) {
   return (
-    <View className="flex-row items-center gap-2 px-1 pb-1 pt-2">
+    <View className="flex-row items-center gap-2 px-1 pb-1 pt-4" accessibilityRole="header">
       <Text className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {children}
       </Text>
-      {count ? <Text className="text-xs text-muted-foreground">· {count}</Text> : null}
+      {count ? <Text className="text-xs text-muted-foreground">({count})</Text> : null}
     </View>
   );
 }
 
+/**
+ * Loans: one scroll sorted by who has to act (UX §D4). Needs you · Out with friends · With you ·
+ * Your requests · Recent · History. Every row opens the Loan screen.
+ */
 export default function LoansScreen() {
-  // Not useUid(): this tab can render once more while signing out.
-  const uid = useSessionStore((s) => s.user?.uid) ?? '';
-  const params = useLocalSearchParams<{ segment?: string }>();
-  const { asOwner, asBorrower, loading, error, retry } = useMyLoans();
-  const linkMap = useLinkMap();
-  const buckets = useMemo(() => bucketLoans(uid, asOwner, asBorrower), [uid, asOwner, asBorrower]);
-
-  // Pick the first segment once the data is in; after that the user is in charge.
-  // A `?segment=` param (e.g. from a notification) wins whenever it changes.
-  const requested = SEGMENTS.find((s) => s === params.segment) ?? null;
-  const [segment, setSegment] = useState<LoanSegment | null>(requested);
-  const [lastRequested, setLastRequested] = useState(requested);
-  if (requested !== lastRequested) {
-    setLastRequested(requested);
-    if (requested) setSegment(requested);
-  }
-  if (segment === null && !loading) setSegment(initialSegment(buckets));
-  const current = segment ?? 'requests';
-
-  const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [dueDialog, setDueDialog] = useState<DueDialog>(null);
-
-  // ----- names (the name *I* saved them as, else the name on the loan) -----
-  const borrowerName = useCallback(
-    (l: L) => (l.borrowerUid && linkMap.get(l.borrowerUid)?.displayName) || l.borrowerName,
-    [linkMap]
-  );
-  const ownerName = useCallback(
-    (l: L) => linkMap.get(l.ownerId)?.displayName || l.ownerName,
-    [linkMap]
-  );
-  const linkedOwners = useMemo(() => new Set(linkMap.keys()), [linkMap]);
-  const openFor = (l: L) =>
-    canOpenCopy(l, uid, linkedOwners)
-      ? () => router.push({ pathname: '/copy/[itemId]', params: { itemId: l.itemId } })
-      : undefined;
-
-  // ----- actions -----
-  const run = async (loanId: string, fn: () => Promise<unknown>, success: string) => {
-    setBusy((b) => ({ ...b, [loanId]: true }));
-    try {
-      await fn();
-      toast.success(success);
-    } catch (e) {
-      toastError(e);
-    } finally {
-      setBusy((b) => {
-        const next = { ...b };
-        delete next[loanId];
-        return next;
-      });
-    }
-  };
-
-  const confirmDueDate = async (date: Date) => {
-    if (!dueDialog) return;
-    const { loan, mode } = dueDialog;
-    const who = borrowerName(loan);
-    try {
-      if (mode === 'accept') {
-        await api.respondToRequest({ loanId: loan.id, accept: true, dueDate: dueDateParam(date) });
-        toast.success(`Lent to ${who}`, {
-          description: `Due back ${formatShortDate(date)}. Arrange the handover on WhatsApp.`,
-        });
-      } else {
-        await api.updateDueDate({ loanId: loan.id, dueDate: dueDateParam(date) });
-        toast.success(`Due date moved to ${formatShortDate(date)}`);
-      }
-    } catch (e) {
-      toastError(e);
-      // An expired or already-handled request can't be retried: close the dialog.
-      const code = errorCode(e);
-      if (code !== 'failed-precondition' && code !== 'not-found') throw e;
-    }
-  };
-
-  const decline = (l: L) =>
-    run(l.id, () => api.respondToRequest({ loanId: l.id, accept: false }), 'Request declined');
-  const cancel = (l: L) =>
-    run(l.id, () => api.cancelRequest({ loanId: l.id }), 'Request cancelled');
-  const confirmReturn = (l: L) =>
-    run(l.id, () => api.confirmReturn({ loanId: l.id }), `“${l.title}” is back on your shelf`);
-  const markReturned = (l: L) =>
-    run(
-      l.id,
-      () => api.markReturned({ loanId: l.id }),
-      `Thanks! ${ownerName(l).split(/\s+/)[0]} will confirm`
-    );
-
-  // ----- render helpers -----
-  const segmentOptions = [
-    {
-      value: 'requests' as const,
-      label: 'Requests',
-      count: buckets.counts.requests,
-      alert: buckets.incoming.length > 0,
-    },
-    { value: 'lent' as const, label: 'Lent out', count: buckets.counts.lent },
-    { value: 'borrowed' as const, label: 'Borrowed', count: buckets.counts.borrowed },
-  ];
+  const { uid, cards, ledger, loading, error, retry, now, asOwner, asBorrower } = useNeedsYou();
+  const allLoans = useMemo(() => [...asOwner, ...asBorrower], [asOwner, asBorrower]);
+  const people = useLoanPeople(allLoans);
+  const sheets = useLoanSheets();
 
   const header = (
-    <>
-      <ScreenHeader large title="Loans" />
-      <View className="bg-background px-4 pb-3">
-        <Segmented value={current} options={segmentOptions} onChange={setSegment} />
-      </View>
-    </>
+    <ScreenHeader
+      large
+      title="Loans"
+      right={
+        <Button
+          variant="outline"
+          className="min-h-11"
+          onPress={() => router.push('/pick-copy')}
+          accessibilityLabel="Lend a book"
+        >
+          <Icon as={Send} size={15} />
+          <Text>Lend a book</Text>
+        </Button>
+      }
+    />
   );
 
   let body: ReactNode;
@@ -183,227 +101,272 @@ export default function LoansScreen() {
     body = (
       <View className="gap-3">
         {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-36 w-full rounded-xl" />
+          <Skeleton key={i} className="h-28 w-full rounded-xl" />
         ))}
       </View>
     );
   } else if (error) {
     body = <LoadErrorState title="Couldn’t load your loans" onRetry={retry} />;
-  } else if (current === 'requests') {
-    const empty = !buckets.incoming.length && !buckets.outgoing.length;
-    body = (
-      <View className="gap-3">
-        {empty ? (
-          <SegmentEmpty
-            icon={Inbox}
-            title="No requests"
-            description="When someone asks to borrow one of your books, it shows up here. Your own requests do too."
-          />
-        ) : null}
-        {buckets.incoming.length ? (
-          <SectionTitle count={buckets.incoming.length}>Waiting for you</SectionTitle>
-        ) : null}
-        {buckets.incoming.map((l) => {
-          const who = borrowerName(l);
-          const phone = l.borrowerPhone;
-          return (
-            <IncomingRequestCard
-              key={l.id}
-              loan={l}
-              borrower={who}
-              busy={!!busy[l.id]}
-              onOpen={openFor(l)}
-              onAccept={() => setDueDialog({ loan: l, mode: 'accept' })}
-              onDecline={() => void decline(l)}
-              onMessage={
-                phone
-                  ? () => void openWhatsApp(phone, requestReplyMessage(who, l.title))
-                  : undefined
-              }
-            />
-          );
-        })}
-        {buckets.outgoing.length ? (
-          <SectionTitle count={buckets.outgoing.length}>Your requests</SectionTitle>
-        ) : null}
-        {buckets.outgoing.map((l) => {
-          const who = ownerName(l);
-          const phone = l.ownerPhone;
-          return (
-            <OutgoingRequestCard
-              key={l.id}
-              loan={l}
-              owner={who}
-              busy={!!busy[l.id]}
-              onOpen={openFor(l)}
-              onCancel={() => void cancel(l)}
-              onMessage={
-                phone
-                  ? () => void openWhatsApp(phone, requestFollowUpMessage(who, l.title))
-                  : undefined
-              }
-            />
-          );
-        })}
-        <HistorySection
-          loans={buckets.history.requests}
-          line={(l) =>
-            l.ownerId === uid ? `${borrowerName(l)} asked` : `You asked ${ownerName(l)}`
-          }
-          openFor={openFor}
-        />
-      </View>
-    );
-  } else if (current === 'lent') {
-    body = (
-      <View className="gap-3">
-        {buckets.lent.length ? null : (
-          <SegmentEmpty
-            icon={ArrowUpRight}
-            title="Nothing lent out"
-            description="Books you lend, through a request or by hand from a book’s page, show up here with their due dates."
-          />
-        )}
-        {buckets.lent.map((l) => {
-          const who = borrowerName(l);
-          const phone = l.borrowerPhone;
-          return (
-            <LentCard
-              key={l.id}
-              loan={l}
-              borrower={who}
-              busy={!!busy[l.id]}
-              onOpen={openFor(l)}
-              onNudge={
-                phone
-                  ? () =>
-                      void openWhatsApp(
-                        phone,
-                        nudgeMessage({ borrowerName: who, title: l.title, dueDate: l.dueDate })
-                      )
-                  : undefined
-              }
-              onConfirmReturn={() => void confirmReturn(l)}
-              onChangeDue={() => setDueDialog({ loan: l, mode: 'change' })}
-            />
-          );
-        })}
-        <HistorySection
-          loans={buckets.history.lent}
-          line={(l) => `Lent to ${borrowerName(l)}`}
-          openFor={openFor}
-        />
-      </View>
-    );
   } else {
-    body = (
-      <View className="gap-3">
-        {buckets.borrowed.length ? null : (
-          <SegmentEmpty
-            icon={ArrowDownLeft}
-            title="Nothing borrowed"
-            description="Find a book on Discover and ask to borrow it. Once the owner accepts, it shows up here."
-          >
-            <Button variant="outline" onPress={() => router.navigate('/')}>
-              <Text>Go to Discover</Text>
-            </Button>
-          </SegmentEmpty>
-        )}
-        {buckets.borrowed.map((l) => {
-          const who = ownerName(l);
-          const phone = l.ownerPhone;
-          return (
-            <BorrowedCard
-              key={l.id}
-              loan={l}
-              owner={who}
-              busy={!!busy[l.id]}
-              onOpen={openFor(l)}
-              onMarkReturned={() => void markReturned(l)}
-              onMessage={
-                phone
-                  ? () =>
-                      void openWhatsApp(phone, returnMessage({ ownerName: who, title: l.title }))
-                  : undefined
-              }
-            />
-          );
-        })}
-        <HistorySection
-          loans={buckets.history.borrowed}
-          line={(l) => `Borrowed from ${ownerName(l)}`}
-          openFor={openFor}
-        />
+    const { outWithFriends, withYou, yourRequests, recent, history } = ledger;
+    const empty =
+      !cards.length &&
+      !outWithFriends.length &&
+      !withYou.length &&
+      !yourRequests.length &&
+      !history.length;
+    body = empty ? (
+      <LoansEmpty />
+    ) : (
+      <View>
+        {cards.length ? <SectionTitle count={cards.length}>Needs you</SectionTitle> : null}
+        {/* Always mounted: its sheets (e.g. the accept success sheet) outlive the last card. */}
+        <NeedsYouList cards={cards} />
+
+        {outWithFriends.length ? (
+          <>
+            <SectionTitle count={outWithFriends.length}>Out with friends</SectionTitle>
+            <View className="gap-1">
+              {outWithFriends.map((l) => {
+                const line = openRowLine(l, uid, people.name(l), now);
+                return (
+                  <LedgerRow
+                    key={l.id}
+                    loan={l}
+                    line={line.text}
+                    danger={line.overdue}
+                    trailing={
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-11"
+                        disabled={sheets.busyId === l.id}
+                        onPress={() => sheets.confirm('gotItBack', l)}
+                        accessibilityLabel={`Got ${l.title} back`}
+                      >
+                        <Icon as={PackageCheck} size={14} />
+                        <Text>Got it back</Text>
+                      </Button>
+                    }
+                  />
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        {withYou.length ? (
+          <>
+            <SectionTitle count={withYou.length}>With you</SectionTitle>
+            <View className="gap-1">
+              {withYou.map((l) => {
+                const line = openRowLine(l, uid, people.name(l), now);
+                const phone = people.phone(l);
+                // QA B1: after "Not back yet", the row offers the WhatsApp reply (E4).
+                const notBack = l.status === 'active' && !!l.notBackYetAt && !!phone;
+                return (
+                  <LedgerRow
+                    key={l.id}
+                    loan={l}
+                    line={line.text}
+                    danger={line.overdue}
+                    muted={l.status === 'returnPending'}
+                    trailing={
+                      notBack ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-11"
+                          onPress={() =>
+                            void openWhatsApp(
+                              phone,
+                              notBackYetReplyMessage({
+                                ownerName: people.greetName(l),
+                                title: l.title,
+                              })
+                            )
+                          }
+                          accessibilityLabel={`Message ${shortName(people.name(l))} on WhatsApp`}
+                        >
+                          <Icon as={MessageCircle} size={14} />
+                          <Text>Message</Text>
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        {yourRequests.length ? (
+          <>
+            <SectionTitle count={yourRequests.length}>Your requests</SectionTitle>
+            <View className="gap-1">
+              {yourRequests.map((l) => (
+                <LedgerRow key={l.id} loan={l} line={requestRowLine(l, people.name(l), now)} />
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {recent.length ? (
+          <>
+            <SectionTitle>Recent</SectionTitle>
+            <View className="gap-1">
+              {recent.map((l) => (
+                <RecentRow key={l.id} loan={l} uid={uid} name={people.name(l)} now={now} />
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        <HistorySection loans={history} uid={uid} name={people.name} />
       </View>
     );
   }
 
   return (
-    <Screen safeBottom={false} header={header} className="pt-1">
+    <Screen safeBottom={false} header={header} className="pt-0">
       {body}
-      <DueDateDialog
-        key={dueDialog ? `${dueDialog.loan.id}-${dueDialog.mode}` : 'closed'}
-        open={!!dueDialog}
-        onOpenChange={(o) => !o && setDueDialog(null)}
-        mode={dueDialog?.mode ?? 'accept'}
-        title={
-          dueDialog?.mode === 'change'
-            ? 'Change due date'
-            : `Lend to ${dueDialog ? borrowerName(dueDialog.loan) : ''}`
-        }
-        description={
-          dueDialog?.mode === 'change'
-            ? `When should “${dueDialog.loan.title}” come back?`
-            : dueDialog
-              ? `When should “${dueDialog.loan.title}” come back? Other requests for this copy are declined.`
-              : undefined
-        }
-        currentDue={dueDialog?.loan.dueDate ?? null}
-        confirmLabel={dueDialog?.mode === 'change' ? 'Save due date' : 'Accept'}
-        onConfirm={confirmDueDate}
-      />
+      {sheets.element}
     </Screen>
   );
 }
 
-function SegmentEmpty({
-  icon,
-  title,
-  description,
-  children,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  children?: ReactNode;
-}) {
+/**
+ * No loans yet (E2a): one primary chosen by the user's situation: Find a book when friends are
+ * on LendShelf, else Add your books or Lend a book; Invite friends while the circle is empty.
+ */
+function LoansEmpty() {
+  const { links, loading: linksLoading } = useLinks();
+  const { items, loading: itemsLoading } = useMyItems();
+  const invite = useInvite();
+  if (linksLoading || itemsLoading) return null;
+  const copy = loansEmptyCopy({ hasPeople: links.length > 0, hasBooks: items.length > 0 });
+  const go: Record<LoansEmptyAction, () => void> = {
+    findBook: goFindABook,
+    addBooks: () => router.push('/add'),
+    lend: () => router.push('/pick-copy'),
+  };
   return (
-    <EmptyState icon={icon} title={title} description={description} className="py-10">
-      {children}
+    <EmptyState icon={ArrowLeftRight} title={copy.title} description={copy.body} className="py-10">
+      <Button className="min-h-12" onPress={go[copy.primary.action]}>
+        <Text>{copy.primary.label}</Text>
+      </Button>
+      {links.length === 0 ? (
+        <Button variant="outline" className="min-h-12" onPress={() => void invite()}>
+          <Icon as={UserPlus} size={16} />
+          <Text>Invite friends</Text>
+        </Button>
+      ) : null}
     </EmptyState>
   );
 }
 
-function HistorySection({
-  loans,
+function LedgerRow({
+  loan,
   line,
-  openFor,
+  danger,
+  muted,
+  note,
+  badge,
+  badgeTone = 'outline',
+  trailing,
 }: {
-  loans: L[];
-  line(l: L): string;
-  openFor(l: L): (() => void) | undefined;
+  loan: L;
+  line: string;
+  danger?: boolean;
+  muted?: boolean;
+  note?: string | null;
+  badge?: string;
+  badgeTone?: 'outline' | 'success' | 'warning';
+  trailing?: ReactNode;
 }) {
+  return (
+    <View className={cn('flex-row items-center gap-2 rounded-lg', muted && 'opacity-60')}>
+      <Pressable
+        onPress={() => openLoan(loan.id)}
+        accessibilityRole="button"
+        // Everything the row shows, in words: status, note and badge (F8).
+        accessibilityLabel={[loan.title, line, note, badge].filter(Boolean).join(', ')}
+        accessibilityHint="Opens the loan"
+        className="min-h-12 flex-1 flex-row items-center gap-3 rounded-lg px-1 py-2 active:bg-accent"
+      >
+        <BookCover uri={loan.coverUrl} title={loan.title} size="xs" />
+        <View className="flex-1 gap-0.5">
+          <Text className="text-sm font-semibold" numberOfLines={2}>
+            {loan.title}
+          </Text>
+          <Text
+            className={cn(
+              'text-xs',
+              danger ? 'font-medium text-destructive' : 'text-muted-foreground'
+            )}
+          >
+            {line}
+          </Text>
+          {note ? <Text className="text-xs text-muted-foreground">{note}</Text> : null}
+        </View>
+        {badge ? (
+          <Badge variant={badgeTone}>
+            <Text>{badge}</Text>
+          </Badge>
+        ) : null}
+      </Pressable>
+      {trailing}
+    </View>
+  );
+}
+
+/**
+ * A Recent row. For my request that was "Lent to someone else" it reads the copy (when I still
+ * can) for "back around 12 Dec", and says "We'll tell you when it's back" (E4, E5).
+ */
+function RecentRow({ loan, uid, name, now }: { loan: L; uid: string; name: string; now: Date }) {
+  const lentElsewhere =
+    loan.ownerId !== uid &&
+    loan.status === 'declined' &&
+    loan.declineReason === 'lentToSomeoneElse';
+  const { item } = useItem(lentElsewhere ? loan.itemId : null);
+  const { isWatchingBack } = useWatches();
+  const { asBorrower } = useMyLoans();
+  const backAround = backAroundFor(item, new Set(asBorrower.map((l) => l.id)));
+  return (
+    <LedgerRow
+      loan={loan}
+      line={recentLine(loan, uid, name, { now, backAround })}
+      note={
+        loan.status === 'ownerLeft'
+          ? 'If you still have it, message them on WhatsApp if you still have their number.'
+          : lentElsewhere && isWatchingBack(loan.itemId)
+            ? 'We’ll tell you when it’s back'
+            : null
+      }
+      badge={lentElsewhere ? undefined : loanStatusLabel(loan)}
+      badgeTone={
+        loan.status === 'returned' ? 'success' : loan.status === 'ownerLeft' ? 'warning' : 'outline'
+      }
+    />
+  );
+}
+
+function HistorySection({ loans, uid, name }: { loans: L[]; uid: string; name(l: L): string }) {
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<HistoryFilter>('all');
   const [shown, setShown] = useState(HISTORY_PAGE);
   if (!loans.length) return null;
+  const filtered = filterHistory(loans, filter, uid);
 
   return (
-    <View className="mt-3 overflow-hidden rounded-xl border border-border">
+    <View className="mt-5 overflow-hidden rounded-xl border border-border">
       <Pressable
         onPress={() => setOpen((o) => !o)}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        className="flex-row items-center gap-3 px-4 py-3 active:bg-accent"
+        accessibilityLabel={`History, ${loans.length} closed loans`}
+        className="min-h-12 flex-row items-center gap-3 px-4 py-3 active:bg-accent"
       >
         <Icon as={History} size={16} className="text-muted-foreground" />
         <Text className="flex-1 text-sm font-medium">History</Text>
@@ -411,12 +374,65 @@ function HistorySection({
         <Icon as={open ? ChevronUp : ChevronDown} size={16} className="text-muted-foreground" />
       </Pressable>
       {open ? (
-        <View className="gap-0.5 border-t border-border px-3 py-2">
-          {loans.slice(0, shown).map((l) => (
-            <HistoryRow key={l.id} loan={l} line={line(l)} onOpen={openFor(l)} />
-          ))}
-          {loans.length > shown ? (
-            <Button variant="ghost" size="sm" onPress={() => setShown((n) => n + HISTORY_PAGE)}>
+        <View className="gap-1 border-t border-border px-3 py-2">
+          <View className="flex-row flex-wrap gap-2 pb-1" accessibilityRole="tablist">
+            {HISTORY_FILTERS.map((f) => {
+              const selected = f.value === filter;
+              return (
+                <Pressable
+                  key={f.value}
+                  onPress={() => {
+                    setFilter(f.value);
+                    setShown(HISTORY_PAGE);
+                  }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                  // 32 dp chip, 48 dp touch target (F8).
+                  hitSlop={{ top: 8, bottom: 8 }}
+                  className={cn(
+                    'rounded-full border px-3.5 py-1.5',
+                    selected
+                      ? 'border-primary bg-primary'
+                      : 'border-border bg-background active:bg-accent'
+                  )}
+                >
+                  <Text
+                    className={cn(
+                      'text-sm font-medium',
+                      selected ? 'text-primary-foreground' : 'text-foreground'
+                    )}
+                  >
+                    {f.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {filtered.length ? null : (
+            <Text className="py-3 text-center text-sm text-muted-foreground">
+              Nothing here yet.
+            </Text>
+          )}
+          {filtered.slice(0, shown).map((l) => {
+            const when = l.returnedAt ?? l.updatedAt;
+            return (
+              <LedgerRow
+                key={l.id}
+                loan={l}
+                line={[recentLine(l, uid, name(l)), when ? formatShortDate(when) : null]
+                  .filter(Boolean)
+                  .join(' · ')}
+                badge={loanStatusLabel(l)}
+                badgeTone={l.status === 'returned' ? 'success' : 'outline'}
+              />
+            );
+          })}
+          {filtered.length > shown ? (
+            <Button
+              variant="ghost"
+              className="min-h-11"
+              onPress={() => setShown((n) => n + HISTORY_PAGE)}
+            >
               <Text>Show more</Text>
             </Button>
           ) : null}

@@ -39,13 +39,18 @@ const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
 
 /** Write, edit or delete my review of a Book (modal). */
 export default function ReviewScreen() {
-  const { workId } = useLocalSearchParams<{ workId: string }>();
+  // `rating` (1–5) comes from the Loan screen's "How was it?" stars and wins over a saved rating.
+  const { workId, rating: ratingParam } = useLocalSearchParams<{
+    workId: string;
+    rating?: string;
+  }>();
+  const presetRating = Number(ratingParam);
   const uid = useUid();
   const { profile } = useMyProfile();
   const { work, loading: workLoading } = useWork(workId);
   const { myReview, loading: reviewsLoading } = useVisibleReviews(workId);
 
-  const [rating, setRating] = useState<number>(0);
+  const [rating, setRating] = useState<number>(isRating(presetRating) ? presetRating : 0);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState<'save' | 'delete' | null>(null);
   // Prefill once from my existing review (state adjusted during render, not in an effect).
@@ -53,7 +58,7 @@ export default function ReviewScreen() {
   if (!prefilled && !reviewsLoading) {
     setPrefilled(true);
     if (myReview) {
-      setRating(myReview.rating);
+      if (!isRating(presetRating)) setRating(myReview.rating);
       setText(myReview.text ?? '');
     }
   }

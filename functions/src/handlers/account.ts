@@ -4,11 +4,15 @@ import { z } from "zod";
 import { trackedBulkWriter } from "../lib/bulk.js";
 import { ts, type Caller, type Deps } from "../lib/context.js";
 import { HttpsError, parseInput } from "../lib/errors.js";
+import { canTransition } from "../lib/loans.js";
+import { msg } from "../lib/messages.js";
 import { normalisePhone } from "../lib/phone.js";
+import type { PushMessage } from "../lib/push.js";
 import {
   COL,
   DEFAULT_SHELF_NAME,
   defaultShelfId,
+  linkId,
   type LoanDoc,
   type ProfileDoc,
   type ShelfDoc,
@@ -129,8 +133,9 @@ export interface DeleteAccountResult {
 
 /**
  * Remove everything belonging to the caller. Loans they own are closed (and
- * kept for the borrower's history without the owner's phone); loans they
- * borrowed keep the borrower name but lose `borrowerUid`.
+ * kept for the borrower's history without the owner's phone): requests are
+ * cancelled, books still out become `ownerLeft`. Loans they borrowed keep
+ * the borrower name but lose `borrowerUid`.
  */
 export async function deleteAccount(deps: Deps, caller: Caller): Promise<DeleteAccountResult> {
   const { db } = deps;
@@ -139,9 +144,14 @@ export async function deleteAccount(deps: Deps, caller: Caller): Promise<DeleteA
   const counts: Record<string, number> = {};
   const writer = trackedBulkWriter(db);
 
-  // Loans they own: close them.
+  // Loans they own: close them. A book still out with an app borrower becomes
+  // `ownerLeft` (name kept, phone blanked) and the borrower is told once, if
+  // they have the owner saved (DECISIONS #23). Pushes are queued only for
+  // writes that landed, so a retried deletion doesn't repeat them.
   const ownedLoans = await db.collection(COL.loans).where("ownerId", "==", uid).get();
+  const ownerLeftPushes: { uids: string[]; message: PushMessage }[] = [];
   counts.loansClosed = 0;
+  counts.loansOwnerLeft = 0;
   for (const d of ownedLoans.docs) {
     const loan = d.data() as LoanDoc;
     if (loan.borrowerUid === null) {
@@ -149,11 +159,20 @@ export async function deleteAccount(deps: Deps, caller: Caller): Promise<DeleteA
     } else {
       const patch: Record<string, unknown> = { ownerPhone: "", updatedAt: now };
       if (loan.status === "requested") patch.status = "cancelled";
-      if (loan.status === "active" || loan.status === "returnPending") {
-        patch.status = "returned";
-        patch.returnedAt = now;
+      const leaving = canTransition(loan.status, "ownerLeave");
+      if (leaving) {
+        patch.status = "ownerLeft";
+        counts.loansOwnerLeft++;
       }
-      writer.update(d.ref, patch);
+      const borrowerUid = loan.borrowerUid;
+      const tell =
+        leaving && (await db.collection(COL.links).doc(linkId(borrowerUid, uid)).get()).exists;
+      writer.update(d.ref, patch).then(
+        () => {
+          if (tell) ownerLeftPushes.push({ uids: [borrowerUid], message: msg.ownerLeft(loan.ownerName, loan.title, d.id) });
+        },
+        () => undefined,
+      );
     }
     counts.loansClosed++;
   }
@@ -162,7 +181,8 @@ export async function deleteAccount(deps: Deps, caller: Caller): Promise<DeleteA
   const borrowed = await db.collection(COL.loans).where("borrowerUid", "==", uid).get();
   for (const d of borrowed.docs) {
     const loan = d.data() as LoanDoc;
-    const patch: Record<string, unknown> = { borrowerUid: null, updatedAt: now };
+    // borrowerLeftAt: the owner sees "Zoya left LendShelf" rather than a hand-recorded loan.
+    const patch: Record<string, unknown> = { borrowerUid: null, borrowerLeftAt: now, updatedAt: now };
     if (loan.status === "requested") patch.status = "cancelled";
     writer.update(d.ref, patch);
   }
@@ -215,6 +235,13 @@ export async function deleteAccount(deps: Deps, caller: Caller): Promise<DeleteA
   writer.delete(db.collection(COL.rateLimits).doc(uid));
   writer.delete(userSnap.ref);
   const failures = await writer.close();
+  for (const p of ownerLeftPushes) {
+    try {
+      await deps.push(p.uids, p.message);
+    } catch (err) {
+      logger.warn("push failed", { error: String(err) });
+    }
+  }
   if (failures.length > 0) {
     // Keep the Auth user so the user can simply try again (every step above is repeatable).
     logger.error("deleteAccount: some writes failed", {

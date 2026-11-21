@@ -1,4 +1,4 @@
-import { routeForNotification } from '@/lib/notification-routes';
+import { hrefFromPath, routeForNotification } from '@/lib/notification-routes';
 import {
   buildNewItem,
   defaultShelfId,
@@ -103,7 +103,27 @@ describe('model helpers', () => {
 
 describe('routeForNotification', () => {
   it('routes by payload', () => {
-    expect(routeForNotification({ type: 'loanRequested', loanId: 'l1' })).toBe('/loans');
+    const loanHref = { pathname: '/loan/[loanId]', params: { loanId: 'l1' } };
+    for (const type of [
+      'loanRequested',
+      'requestAccepted',
+      'requestDeclined',
+      'requestExpired',
+      'lentToYou',
+      'markedReturned',
+      'dueSoon',
+      'overdue',
+      'itemRemoved',
+      'notBackYet',
+      'dueChanged',
+      'ownerLeft',
+    ]) {
+      expect(routeForNotification({ type, loanId: 'l1' })).toEqual(loanHref);
+    }
+    expect(routeForNotification({ type: 'availableAgain', itemId: 'i1' })).toEqual({
+      pathname: '/copy/[itemId]',
+      params: { itemId: 'i1' },
+    });
     expect(routeForNotification({ type: 'itemBack', itemId: 'i1' })).toEqual({
       pathname: '/copy/[itemId]',
       params: { itemId: 'i1' },
@@ -113,6 +133,10 @@ describe('routeForNotification', () => {
       params: { itemId: 'i1' },
     });
     expect(routeForNotification({ type: 'reviewPrompt', workId: 'w1', loanId: 'l1' })).toEqual({
+      pathname: '/loan/[loanId]',
+      params: { loanId: 'l1', review: '1' },
+    });
+    expect(routeForNotification({ type: 'reviewPrompt', workId: 'w1' })).toEqual({
       pathname: '/review/[workId]',
       params: { workId: 'w1' },
     });
@@ -122,6 +146,25 @@ describe('routeForNotification', () => {
     });
     expect(routeForNotification(null)).toBeNull();
     expect(routeForNotification({ type: 'x' })).toBeNull();
+  });
+
+  it('turns link paths into detail screens to keep through sign-in', () => {
+    expect(hrefFromPath('loan/abc')).toEqual({
+      pathname: '/loan/[loanId]',
+      params: { loanId: 'abc' },
+    });
+    expect(hrefFromPath('/copy/i1?x=1')).toEqual({
+      pathname: '/copy/[itemId]',
+      params: { itemId: 'i1' },
+    });
+    expect(hrefFromPath('book/ol_1/')).toEqual({
+      pathname: '/book/[workId]',
+      params: { workId: 'ol_1' },
+    });
+    expect(hrefFromPath('person/u1')).toEqual({ pathname: '/person/[uid]', params: { uid: 'u1' } });
+    expect(hrefFromPath('loans')).toBeNull();
+    expect(hrefFromPath('')).toBeNull();
+    expect(hrefFromPath(null)).toBeNull();
   });
 });
 
