@@ -109,7 +109,7 @@ function DueDateBody({
               className={cn(
                 'rounded-full border px-3.5 py-1.5',
                 selected
-                  ? 'border-primary bg-primary'
+                  ? 'border-primary bg-primary active:bg-primary/90 dark:bg-primary'
                   : 'border-border bg-background active:bg-accent dark:bg-input/30'
               )}
             >

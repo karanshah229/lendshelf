@@ -34,7 +34,10 @@ export function Segmented({
             accessibilityState={{ selected }}
             accessibilityLabel={`${o.label}, ${o.count}`}
             className={cn(
-              'h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-md px-2',
+              // Keep a `dark:` class in both states: NativeWind "upgrades" a component that
+              // gains a variant after its first render, and on native that upgrade path
+              // crashes in dev (stringifying navigation context).
+              'h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-md px-2 dark:bg-transparent',
               selected && 'bg-background shadow-sm shadow-black/10 dark:bg-input/40'
             )}
           >
