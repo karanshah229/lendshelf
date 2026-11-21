@@ -45,7 +45,7 @@ export function CircleCopiesList({
               onPress={() =>
                 router.push({ pathname: '/copy/[itemId]', params: { itemId: c.item.id } })
               }
-              accessibilityLabel={`${name}'s copy`}
+              accessibilityLabel={c.isMine ? 'Your copy' : `${name}'s copy`}
               leading={<PersonAvatar name={c.isMine ? myName : name} size="md" />}
               title={
                 <Text className="text-sm font-medium" numberOfLines={1}>

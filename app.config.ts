@@ -32,6 +32,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       monochromeImage: './assets/images/android-icon-monochrome.png',
     },
     predictiveBackGestureEnabled: false,
+    // Android 17+ needs this runtime permission to reach the emulators on 10.0.2.2 / a LAN IP
+    // (src/lib/firebase/index.native.ts asks for it). Only emulator builds declare it; debug
+    // builds get it from React Native's dev support anyway.
+    ...(process.env.EXPO_PUBLIC_USE_EMULATORS === '1'
+      ? { permissions: ['android.permission.ACCESS_LOCAL_NETWORK'] }
+      : {}),
   },
   web: {
     output: 'single',
@@ -58,7 +64,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         ios: { useFrameworks: 'dynamic' },
         android: {
           // The Auth/Firestore emulators run over plain HTTP on 10.0.2.2 in development.
-          usesCleartextTraffic: true,
+          // Production builds keep Android's default (HTTPS only).
+          usesCleartextTraffic: process.env.EXPO_PUBLIC_USE_EMULATORS === '1',
+          // React Native Firebase v27 pulls Firebase BoM 35 (firebase-auth 25), whose Kotlin
+          // metadata is 2.4. RN's default Kotlin 2.2 compiler can't read it ("Module was compiled
+          // with an incompatible version of Kotlin"); 2.3 can (one version forward-compatible).
+          kotlinVersion: '2.3.21',
         },
       },
     ],

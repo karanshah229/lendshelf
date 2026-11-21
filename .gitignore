@@ -5,6 +5,7 @@ node_modules/
 .expo/
 dist/
 web-build/
+dist-apk/
 expo-env.d.ts
 
 # Generated native folders (Continuous Native Generation: run `npx expo prebuild`)

@@ -74,9 +74,12 @@ export default function ContactsScreen() {
         return false;
       }
       if (res.status === 'skipped') {
-        toast.error(
-          HAS_ADDRESS_BOOK ? 'No phone numbers found in your contacts.' : 'Add a contact first.'
-        );
+        if (HAS_ADDRESS_BOOK) {
+          // An empty address book isn't an error worth blocking onboarding on.
+          toast('No phone numbers in your contacts yet. You can sync later from Me.');
+          return true;
+        }
+        toast.error('Add a contact first.');
         return false;
       }
       const n = res.links.length;
