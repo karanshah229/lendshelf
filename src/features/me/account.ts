@@ -19,7 +19,14 @@ export async function signOutAndCleanUp(): Promise<void> {
  * The users doc (and its push tokens) is gone with the account.
  */
 export async function deleteAccountAndSignOut(): Promise<void> {
-  await api.deleteAccount({});
+  const session = useSessionStore.getState();
+  session.setDeletingAccount(true);
+  try {
+    await api.deleteAccount({});
+  } catch (e) {
+    session.setDeletingAccount(false);
+    throw e;
+  }
   forgetPushRegistration();
   try {
     await signOut();

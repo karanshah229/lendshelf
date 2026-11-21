@@ -35,6 +35,21 @@ export function normalisePhone(raw: string, region: CountryCode = DEFAULT_REGION
   return parsed.number;
 }
 
+/**
+ * Like `normalisePhone`, but a national number that isn't valid in `region` is also tried
+ * in DEFAULT_REGION. Device locales often say "en-US" on phones used in India, which would
+ * otherwise reject a typed 10-digit Indian mobile number.
+ */
+export function normalisePhoneLenient(
+  raw: string,
+  region: CountryCode = DEFAULT_REGION
+): string | null {
+  return (
+    normalisePhone(raw, region) ??
+    (region !== DEFAULT_REGION ? normalisePhone(raw, DEFAULT_REGION) : null)
+  );
+}
+
 /** Normalises many numbers, dropping invalid ones and duplicates (order preserved). */
 export function normalisePhones(
   raws: Iterable<string>,

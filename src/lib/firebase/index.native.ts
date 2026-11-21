@@ -65,6 +65,9 @@ const g = globalThis as { __lendshelfEmulatorsConnected?: boolean };
 if (USE_EMULATORS && !g.__lendshelfEmulatorsConnected) {
   g.__lendshelfEmulatorsConnected = true;
   connectAuthEmulator(auth, `http://${EMULATOR_HOST}:${EMULATOR_PORTS.auth}`);
+  // The Auth emulator can't answer Play Integrity / reCAPTCHA app checks, and the native SDK
+  // otherwise fails phone sign-in with a network error. Emulator mode only.
+  auth.settings.appVerificationDisabledForTesting = true;
   connectFirestoreEmulator(db, EMULATOR_HOST, EMULATOR_PORTS.firestore);
   connectFunctionsEmulator(functions, EMULATOR_HOST, EMULATOR_PORTS.functions);
   connectStorageEmulator(storage, EMULATOR_HOST, EMULATOR_PORTS.storage);

@@ -18,12 +18,19 @@ export interface SessionState {
   links: WithId<Link>[];
   linksLoading: boolean;
   linksError: Error | null;
+  /**
+   * True while deleteAccount runs. The server removes the profile before the Auth user, so
+   * without this the app would briefly route to the "What's your name?" onboarding screen
+   * (and finishing it would recreate data for the account being deleted).
+   */
+  deletingAccount: boolean;
   setUser(user: AuthUser | null): void;
+  setDeletingAccount(deleting: boolean): void;
   setProfile(profile: WithId<Profile> | null): void;
   setLinks(links: WithId<Link>[], error?: Error | null): void;
 }
 
-export const useSessionStore = create<SessionState>()((set) => ({
+export const useSessionStore = create<SessionState>()((set, get) => ({
   user: null,
   authLoading: true,
   profile: null,
@@ -31,8 +38,10 @@ export const useSessionStore = create<SessionState>()((set) => ({
   links: [],
   linksLoading: false,
   linksError: null,
+  deletingAccount: false,
   setUser(user) {
     set({
+      deletingAccount: false,
       user,
       authLoading: false,
       profile: null,
@@ -43,7 +52,12 @@ export const useSessionStore = create<SessionState>()((set) => ({
     });
   },
   setProfile(profile) {
-    set({ profile, profileLoading: false });
+    // Keep the last profile while the account is being deleted (see deletingAccount).
+    if (!profile && get().deletingAccount) set({ profileLoading: false });
+    else set({ profile, profileLoading: false });
+  },
+  setDeletingAccount(deletingAccount) {
+    set({ deletingAccount });
   },
   setLinks(links, error = null) {
     set({ links, linksLoading: false, linksError: error });

@@ -76,7 +76,7 @@ export function EditEditionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[420px] max-w-full">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Edition details</DialogTitle>
           <DialogDescription>Helps borrowers know which copy they’re getting.</DialogDescription>

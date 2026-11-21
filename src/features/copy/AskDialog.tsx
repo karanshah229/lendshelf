@@ -83,7 +83,7 @@ export function AskDialog({
 
   return (
     <Dialog open={!!target} onOpenChange={(open) => (open ? onOpenChange(true) : close())}>
-      <DialogContent className="w-[420px] max-w-full">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Ask to borrow</DialogTitle>
           <DialogDescription>

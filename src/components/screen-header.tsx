@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useCanGoBack } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
@@ -37,7 +37,8 @@ export function ScreenHeader({
   className,
 }: ScreenHeaderProps) {
   const insets = useSafeAreaInsets();
-  const showBack = back === undefined ? router.canGoBack() : !!back;
+  const canGoBack = useCanGoBack();
+  const showBack = back === undefined ? canGoBack : !!back;
   const onBack = typeof back === 'function' ? back : () => router.back();
 
   if (large) {

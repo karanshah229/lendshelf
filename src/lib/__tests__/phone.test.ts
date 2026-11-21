@@ -3,6 +3,7 @@ import {
   formatPhone,
   isE164,
   normalisePhone,
+  normalisePhoneLenient,
   normalisePhones,
   phoneDigits,
   toCountryCode,
@@ -36,6 +37,22 @@ describe('normalisePhone', () => {
 
   it.each(['', '   ', 'abc', '123', '+91 12345', '++'])('rejects %p', (input) => {
     expect(normalisePhone(input, 'IN')).toBeNull();
+  });
+});
+
+describe('normalisePhoneLenient', () => {
+  it('uses the given region first', () => {
+    expect(normalisePhoneLenient('(415) 555-2671', 'US')).toBe('+14155552671');
+  });
+
+  it('falls back to IN when the number is not valid in the device region', () => {
+    expect(normalisePhone('98123 11111', 'US')).toBeNull();
+    expect(normalisePhoneLenient('98123 11111', 'US')).toBe('+919812311111');
+  });
+
+  it('still rejects numbers that are invalid everywhere', () => {
+    expect(normalisePhoneLenient('123', 'US')).toBeNull();
+    expect(normalisePhoneLenient('+91 12345', 'IN')).toBeNull();
   });
 });
 

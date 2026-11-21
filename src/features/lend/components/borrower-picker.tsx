@@ -11,7 +11,7 @@ import { buildBorrowerOptions, type Borrower } from '@/features/lend/borrowers';
 import { useDeviceContacts } from '@/features/lend/use-device-contacts';
 import { useLinks } from '@/hooks/use-links';
 import { deviceRegion, HAS_ADDRESS_BOOK } from '@/lib/contacts';
-import { formatPhone, normalisePhone } from '@/lib/phone';
+import { formatPhone, normalisePhoneLenient } from '@/lib/phone';
 import { cn } from '@/lib/utils';
 
 const MAX_CONTACT_ROWS = 40;
@@ -249,7 +249,7 @@ function ManualBorrower({
 
   const submit = () => {
     const cleanName = name.replace(/\s+/g, ' ').trim();
-    const e164 = phone.trim() ? normalisePhone(phone, deviceRegion()) : null;
+    const e164 = phone.trim() ? normalisePhoneLenient(phone, deviceRegion()) : null;
     const next: typeof error = {};
     if (!cleanName) next.name = 'Enter their name.';
     else if (cleanName.length > 60) next.name = 'That name is too long.';

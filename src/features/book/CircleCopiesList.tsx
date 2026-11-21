@@ -64,13 +64,16 @@ export function CircleCopiesList({
                 </View>
               }
               trailing={
+                canAsk ? null : (
+                  <Icon as={ChevronRight} size={16} className="text-muted-foreground" />
+                )
+              }
+              action={
                 canAsk ? (
                   <Button size="sm" variant="secondary" onPress={() => onAsk(c)}>
                     <Text>Ask</Text>
                   </Button>
-                ) : (
-                  <Icon as={ChevronRight} size={16} className="text-muted-foreground" />
-                )
+                ) : null
               }
             />
           </View>

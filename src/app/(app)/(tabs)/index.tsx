@@ -127,7 +127,13 @@ export default function DiscoverScreen() {
                       authors={group.authors}
                       coverUrl={coverUrl}
                       href={{ pathname: '/book/[workId]', params: { workId: group.workId } }}
-                      meta={<AvailabilityLine availability={availability} />}
+                      meta={
+                        // Only my copies: the "You own it" badge says it; skip the wishlist
+                        // wording ("You own a copy now").
+                        availability.tone === 'mine' ? undefined : (
+                          <AvailabilityLine availability={availability} />
+                        )
+                      }
                       badge={
                         summary.mineCount ? (
                           <Badge variant="outline">

@@ -89,12 +89,17 @@ export function DetailRow({
   );
 }
 
-/** Pressable list row with a leading element (avatar/icon), text and trailing content. */
+/**
+ * Pressable list row with a leading element (avatar/icon), text and trailing content.
+ * Interactive trailing content (e.g. a button) goes in `action`, which sits beside the
+ * pressable area rather than inside it (a button inside a button is invalid on web).
+ */
 export function ListRow({
   leading,
   title,
   subtitle,
   trailing,
+  action,
   onPress,
   className,
   accessibilityLabel,
@@ -103,15 +108,20 @@ export function ListRow({
   title: ReactNode;
   subtitle?: ReactNode;
   trailing?: ReactNode;
+  action?: ReactNode;
   onPress?: () => void;
   className?: string;
   accessibilityLabel?: string;
 }) {
-  return (
+  const row = (
     <Pressable
       onPress={onPress}
       disabled={!onPress}
-      className={cn('flex-row items-center gap-3 px-4 py-3 active:bg-accent', className)}
+      className={cn(
+        'flex-row items-center gap-3 px-4 py-3 active:bg-accent',
+        action ? 'flex-1 pr-2' : null,
+        className
+      )}
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={accessibilityLabel}
     >
@@ -136,6 +146,13 @@ export function ListRow({
       </View>
       {trailing}
     </Pressable>
+  );
+  if (!action) return row;
+  return (
+    <View className="flex-row items-center">
+      {row}
+      <View className="pr-4">{action}</View>
+    </View>
   );
 }
 

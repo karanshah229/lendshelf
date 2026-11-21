@@ -154,10 +154,13 @@ export default function BookScreen() {
                 />
                 <Text>{wishlisted ? 'On wishlist' : 'Wishlist'}</Text>
               </Button>
-              <Button variant="outline" className="flex-1" onPress={addCopy}>
-                <Icon as={BookPlus} size={16} />
-                <Text>{mine.length ? 'Add another copy' : 'I own this'}</Text>
-              </Button>
+              {/* Only the creator can attach copies to a custom book (SPEC §1). */}
+              {!work.isCustom || work.createdBy === uid ? (
+                <Button variant="outline" className="flex-1" onPress={addCopy}>
+                  <Icon as={BookPlus} size={16} />
+                  <Text>{mine.length ? 'Add another copy' : 'I own this'}</Text>
+                </Button>
+              ) : null}
             </View>
           </View>
 
