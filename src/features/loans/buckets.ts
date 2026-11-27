@@ -195,6 +195,11 @@ export function openRowLine(
 ): { text: string; overdue: boolean } {
   const owner = l.ownerId === uid;
   const name = first(other);
+  // The borrower deleted their account (same test as the Loan screen): say so, not "Waiting
+  // for Tara to pick up" (QA two-phone run, S16).
+  if (owner && !l.borrowerUid && (!!l.requestedAt || !!l.borrowerLeftAt)) {
+    return { text: `${name} left LendShelf`, overdue: false };
+  }
   if (l.status === 'returnPending') {
     return {
       text: owner ? `${name} says it’s back` : `Waiting for ${name} to confirm`,

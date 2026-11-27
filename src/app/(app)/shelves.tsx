@@ -23,6 +23,7 @@ import { PendingRequestsSheet } from '@/features/shelves/components/pending-requ
 import { DeleteShelfDialog, ShelfFormDialog } from '@/features/shelves/components/shelf-dialogs';
 import { defaultMoveTarget, moveShelf, nextSortOrder } from '@/features/shelves/logic';
 import {
+  deleteToPrivateSheet,
   makePrivateSheet,
   requestersToDecline,
   requestsOnItems,
@@ -54,12 +55,25 @@ export default function ShelvesScreen() {
   const [busy, setBusy] = useState<Record<string, 'visibility' | 'order' | undefined>>({});
   const { incomingRequests } = useMyLoans();
   const people = useLoanPeople(incomingRequests);
-  /** Making a collection private while some of its books have pending requests (E9). */
-  const [makingPrivate, setMakingPrivate] = useState<{
-    shelf: WithId<Shelf>;
+  /**
+   * Making a collection private, or deleting it into a private one, while some of its books have
+   * pending requests (E9): the named confirm, then decline, then `apply` the change.
+   */
+  const [pendingChange, setPendingChange] = useState<{
     loanIds: string[];
     copy: SheetCopy;
+    apply(): Promise<void>;
   } | null>(null);
+
+  /** Open requests on the copies of `shelfId` that people can see now (not hidden). */
+  const requestsOnShelf = (shelfId: string) => {
+    const shared = items.filter((i) => i.shelfId === shelfId && i.visibility !== 'hidden');
+    const requests = requestsOnItems(
+      incomingRequests,
+      shared.map((i) => i.id)
+    );
+    return { shared, declines: requestersToDecline(requests, people.name) };
+  };
 
   const counts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -95,18 +109,12 @@ export default function ShelvesScreen() {
 
   const togglePublic = (shelf: WithId<Shelf>, isPublic: boolean) => {
     if (!isPublic) {
-      // Copies that people can see now (not hidden) and that someone asked for.
-      const shared = items.filter((i) => i.shelfId === shelf.id && i.visibility !== 'hidden');
-      const requests = requestsOnItems(
-        incomingRequests,
-        shared.map((i) => i.id)
-      );
-      if (requests.length) {
-        const declines = requestersToDecline(requests, people.name);
-        setMakingPrivate({
-          shelf,
+      const { shared, declines } = requestsOnShelf(shelf.id);
+      if (declines.length) {
+        setPendingChange({
           loanIds: declines.map((d) => d.loanId),
           copy: makePrivateSheet(shelf.name, shared.length, declines),
+          apply: () => applyPublic(shelf, false),
         });
         return;
       }
@@ -213,18 +221,18 @@ export default function ShelvesScreen() {
       ) : null}
 
       <PendingRequestsSheet
-        copy={makingPrivate?.copy ?? null}
-        onClose={() => setMakingPrivate(null)}
+        copy={pendingChange?.copy ?? null}
+        onClose={() => setPendingChange(null)}
         onConfirm={async () => {
-          if (!makingPrivate) return;
+          if (!pendingChange) return;
           try {
-            // Decline first (`notLending`), then make it private: nobody gets "Copy not found".
-            await declinePendingRequests(makingPrivate.loanIds);
+            // Decline first (`notLending`), then apply: nobody gets "Copy not found".
+            await declinePendingRequests(pendingChange.loanIds);
           } catch (e) {
             toastError(e);
             throw e;
           }
-          await applyPublic(makingPrivate.shelf, false);
+          await pendingChange.apply();
         }}
       />
 
@@ -238,18 +246,35 @@ export default function ShelvesScreen() {
           count={counts[dialog.shelf.id] ?? 0}
           initialTargetId={defaultMoveTarget(shelves, dialog.shelf.id, defaultShelfId(uid))}
           onConfirm={async (moveTo) => {
-            try {
-              const res = await deleteShelf(dialog.shelf.id, moveTo);
-              const target = shelves.find((s) => s.id === moveTo)?.name ?? 'another collection';
-              toast.success(
-                res.moved
-                  ? `Deleted ${dialog.shelf.name}. ${books(res.moved)} moved to ${target}.`
-                  : `Deleted ${dialog.shelf.name}`
-              );
-            } catch (e) {
-              toastError(e);
-              throw e;
+            const shelf = dialog.shelf;
+            const target = shelves.find((s) => s.id === moveTo);
+            const remove = async () => {
+              try {
+                const res = await deleteShelf(shelf.id, moveTo);
+                toast.success(
+                  res.moved
+                    ? `Deleted ${shelf.name}. ${books(res.moved)} moved to ${target?.name ?? 'another collection'}.`
+                    : `Deleted ${shelf.name}`
+                );
+              } catch (e) {
+                toastError(e);
+                throw e;
+              }
+            };
+            // Shared → private: the books disappear for requesters, so name and decline them
+            // first, as Make private does (E9, QA E). The delete dialog closes; the sheet opens.
+            if (shelf.isPublic && target && !target.isPublic) {
+              const { declines } = requestsOnShelf(shelf.id);
+              if (declines.length) {
+                setPendingChange({
+                  loanIds: declines.map((d) => d.loanId),
+                  copy: deleteToPrivateSheet(shelf.name, target.name, declines),
+                  apply: remove,
+                });
+                return;
+              }
             }
+            await remove();
           }}
         />
       ) : null}

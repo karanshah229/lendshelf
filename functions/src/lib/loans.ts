@@ -162,17 +162,16 @@ export function requestExpiryCutoff(now: Date): Date {
 export type ReminderKind = "dueSoon" | "overdue";
 
 /**
- * Which reminder (if any) the daily job sends for an active loan.
- * - `dueSoon`: due in more than 1 and at most 2 days (sent once).
- * - `overdue`: on the first day it is overdue, then every 7 days.
+ * Which reminder (if any) the daily job sends for an active loan, by calendar day in India time,
+ * so the answer doesn't depend on the hour the job runs (QA two-phone run: a later run skipped the
+ * first "Overdue").
+ * - `dueSoon`: the day before the due date (sent once).
+ * - `overdue`: the day after the due date, then every 7 days.
  */
 export function reminderKind(dueDate: Date, now: Date): ReminderKind | null {
-  const diff = dueDate.getTime() - now.getTime();
-  if (diff > DAY_MS && diff <= 2 * DAY_MS) return "dueSoon";
-  if (diff <= 0) {
-    const daysOver = Math.floor(-diff / DAY_MS);
-    return daysOver % 7 === 0 ? "overdue" : null;
-  }
+  const days = daysUntil(dueDate, now);
+  if (days === 1) return "dueSoon";
+  if (days <= -1) return (-days - 1) % 7 === 0 ? "overdue" : null;
   return null;
 }
 

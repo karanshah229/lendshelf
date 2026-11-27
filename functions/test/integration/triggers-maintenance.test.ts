@@ -27,7 +27,6 @@ let ravi: TestUser; // has Asha saved, wishlists The Hobbit
 let kabir: TestUser; // wishlists The Hobbit but doesn't have Asha saved
 
 const DAY = 86_400_000;
-const HOUR = 3_600_000;
 
 beforeAll(async () => {
   await clearEmulators();
@@ -90,18 +89,19 @@ describe("dailyMaintenance (handler invoked directly)", () => {
       coverUrl: null, message: null, startedAt: null, returnMarkedAt: null, returnedAt: null,
       updatedAt: Timestamp.fromDate(now),
     };
+    // Reminders go by calendar day in India time: tomorrow is due soon, yesterday is overdue.
     const at = (ms: number) => Timestamp.fromMillis(now.getTime() + ms);
     const loans: Record<string, LoanDoc> = {
       old: { ...base, status: "requested", requestedAt: at(-8 * DAY), dueDate: null },
       fresh: { ...base, status: "requested", requestedAt: at(-2 * DAY), dueDate: null },
-      dueSoon: { ...base, status: "active", requestedAt: null, dueDate: at(36 * HOUR) },
+      dueSoon: { ...base, status: "active", requestedAt: null, dueDate: at(DAY) },
       dueLater: { ...base, status: "active", requestedAt: null, dueDate: at(10 * DAY) },
-      overdue: { ...base, status: "active", requestedAt: null, dueDate: at(-2 * HOUR) },
-      overdueNonApp: { ...base, borrowerUid: null, borrowerName: "Uncle", status: "active", requestedAt: null, dueDate: at(-7 * DAY - HOUR) },
-      returned: { ...base, status: "returned", requestedAt: null, dueDate: at(-2 * HOUR) },
+      overdue: { ...base, status: "active", requestedAt: null, dueDate: at(-DAY) },
+      overdueNonApp: { ...base, borrowerUid: null, borrowerName: "Uncle", status: "active", requestedAt: null, dueDate: at(-8 * DAY) },
+      returned: { ...base, status: "returned", requestedAt: null, dueDate: at(-DAY) },
       // B5: the owner left; no reminders to anyone.
-      ownerLeft: { ...base, status: "ownerLeft", ownerPhone: "", requestedAt: null, dueDate: at(-2 * HOUR) },
-      ownerLeftDueSoon: { ...base, status: "ownerLeft", ownerPhone: "", requestedAt: null, dueDate: at(36 * HOUR) },
+      ownerLeft: { ...base, status: "ownerLeft", ownerPhone: "", requestedAt: null, dueDate: at(-DAY) },
+      ownerLeftDueSoon: { ...base, status: "ownerLeft", ownerPhone: "", requestedAt: null, dueDate: at(DAY) },
     };
     await Promise.all(Object.entries(loans).map(([id, l]) => db.collection(COL.loans).doc(`m_${id}`).set(l)));
 

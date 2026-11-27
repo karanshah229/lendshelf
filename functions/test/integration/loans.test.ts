@@ -183,11 +183,12 @@ describe("requestLoan guards", () => {
 describe("recordLoan", () => {
   it("lends to someone who isn't on the app", async () => {
     const itemId = await addItem(asha.uid);
-    const { loanId } = await asha.call<{ loanId: string }>("recordLoan", {
+    const { loanId, onApp } = await asha.call<{ loanId: string; onApp: boolean }>("recordLoan", {
       itemId,
       borrowerName: "Uncle Prakash",
       borrowerPhone: "+91 99887 76655",
     });
+    expect(onApp).toBe(false);
     const loan = await getDoc<LoanDoc>(COL.loans, loanId);
     expect(loan).toMatchObject({
       status: "active",
@@ -240,8 +241,9 @@ describe("recordLoan", () => {
 describe("pushes only reach people who have the owner saved", () => {
   it("recordLoan to an app user without the owner saved: borrowerUid set, no pushes", async () => {
     const itemId = await addItem(asha.uid);
-    const { loanId } = await asha.call<{ loanId: string }>("recordLoan", { itemId, borrowerName: "Kabir", borrowerPhone: kabir.phone });
+    const { loanId, onApp } = await asha.call<{ loanId: string; onApp: boolean }>("recordLoan", { itemId, borrowerName: "Kabir", borrowerPhone: kabir.phone });
     expect((await getDoc<LoanDoc>(COL.loans, loanId))?.borrowerUid).toBe(kabir.uid);
+    expect(onApp).toBe(true); // a typed number of an app user: no invite (QA F)
     await asha.call("confirmReturn", { loanId }); // no review prompt either
     expect(await pushesTo(kabir.uid)).toEqual([]);
   });
@@ -396,7 +398,7 @@ describe("B3: markNotReturned", () => {
     await expectCode(asha.call("markNotReturned", { loanId }), "failed-precondition", /an active loan/);
 
     // Past due: the next daily run sends the overdue reminders again.
-    await db.collection(COL.loans).doc(loanId).update({ dueDate: Timestamp.fromMillis(Date.now() - 2 * 3_600_000) });
+    await db.collection(COL.loans).doc(loanId).update({ dueDate: Timestamp.fromMillis(Date.now() - 24 * 3_600_000) }) // due yesterday;
     const sent: { uids: string[]; message: PushMessage }[] = [];
     const deps: Deps = {
       db,

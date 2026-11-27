@@ -120,6 +120,8 @@ export interface RecordLoanRequest {
 }
 export interface RecordLoanResponse {
   loanId: string;
+  /** The borrower's number belongs to someone on LendShelf (picked or typed). */
+  onApp: boolean;
 }
 
 export interface UpdateDueDateRequest {

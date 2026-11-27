@@ -107,8 +107,11 @@ export default function ContactsScreen() {
         setError('Add a contact first.');
         return;
       }
-      // An empty address book: nobody to find (case i).
+      // An empty address book: nobody to find (case i). Say so, so Sync now visibly did
+      // something (QA two-phone run).
       setFound([]);
+      setNewLine('Your address book has no phone numbers to check.');
+      announce('Your address book has no phone numbers to check.');
       return;
     }
     setFound(res.links);

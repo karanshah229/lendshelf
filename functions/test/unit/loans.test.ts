@@ -134,20 +134,28 @@ describe("expiry and reminders", () => {
     expect(isRequestExpired(addDays(now, -7), now)).toBe(true);
   });
 
-  it("due-soon fires once, in the 24-48h window", () => {
-    expect(reminderKind(new Date(now.getTime() + 47 * HOUR), now)).toBe("dueSoon");
-    expect(reminderKind(new Date(now.getTime() + 48 * HOUR), now)).toBe("dueSoon");
-    expect(reminderKind(new Date(now.getTime() + 49 * HOUR), now)).toBeNull();
-    expect(reminderKind(new Date(now.getTime() + 24 * HOUR), now)).toBeNull();
-    expect(reminderKind(new Date(now.getTime() + 5 * HOUR), now)).toBeNull();
+  it("reminders go by calendar day in India time, whatever hour the job runs", () => {
+    const due = new Date("2026-11-22T06:30:00Z"); // noon IST, 22 Nov
+    const at = (iso: string) => new Date(iso);
+    // The day before, early or late: due soon.
+    expect(reminderKind(due, at("2026-11-20T19:00:00Z"))).toBe("dueSoon"); // 00:30 IST 21 Nov
+    expect(reminderKind(due, at("2026-11-21T17:00:00Z"))).toBe("dueSoon"); // 22:30 IST 21 Nov
+    expect(reminderKind(due, at("2026-11-22T17:00:00Z"))).toBeNull(); // 22:30 IST, due today
+    // The first overdue day, at any hour (a manual run at 19:30 IST included).
+    expect(reminderKind(due, at("2026-11-22T19:00:00Z"))).toBe("overdue"); // 00:30 IST 23 Nov
+    expect(reminderKind(due, at("2026-11-23T14:00:00Z"))).toBe("overdue"); // 19:30 IST 23 Nov
+    expect(reminderKind(due, at("2026-11-24T14:00:00Z"))).toBeNull();
+    expect(reminderKind(due, at("2026-11-30T14:00:00Z"))).toBe("overdue");
+    expect(reminderKind(due, at("2026-12-07T14:00:00Z"))).toBe("overdue");
   });
 
-  it("overdue fires on day 0 and weekly after", () => {
-    expect(reminderKind(new Date(now.getTime() - 1 * HOUR), now)).toBe("overdue");
-    expect(reminderKind(addDays(now, -1), now)).toBeNull();
+  it("overdue fires the day after the due date and weekly after", () => {
+    // now = 21 Nov 09:00 IST
+    expect(reminderKind(new Date(now.getTime() - 1 * HOUR), now)).toBeNull(); // due today
+    expect(reminderKind(addDays(now, -1), now)).toBe("overdue");
     expect(reminderKind(addDays(now, -3), now)).toBeNull();
-    expect(reminderKind(new Date(addDays(now, -7).getTime() - HOUR), now)).toBe("overdue");
-    expect(reminderKind(new Date(addDays(now, -14).getTime() - HOUR), now)).toBe("overdue");
+    expect(reminderKind(addDays(now, -8), now)).toBe("overdue");
+    expect(reminderKind(addDays(now, -15), now)).toBe("overdue");
   });
 });
 

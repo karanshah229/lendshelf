@@ -264,3 +264,100 @@ Loans saved before the fix keep their 05:30 due times. Animal Farm (due 28 Nov) 
 
 ### End state
 Web server stopped and viewport reset. Phones were not used.
+
+## Two-phone scenarios (2026-11-27)
+
+Scenarios S0–S19 from [MULTI-DEVICE-TESTS.md](MULTI-DEVICE-TESTS.md), run on two physical phones at the same time against `lendshelf-dev`, dev build at `b61b841`. Phone A (Android 16) played Asha. Phone B (Android 17) played Ravi, then Meera, then a throwaway user (04), then Ravi again. Meera also used the web build (`APP_ENV=dev`, port 8083, 375 × 812); web sign-in got no image challenge this time.
+
+Every title added starts with `MD<n>`, except "Siddhartha" (S11 needs a catalogue book). Phone B has no WhatsApp, so its hand-offs opened the browser and were backed out. Phone A's WhatsApp chats were checked for recipient and text, then backed out; nothing was sent.
+
+"Live" times run from the tap on one phone to the change on the other, read with UI dumps (about 1 s resolution), so they include the callable.
+
+| ID | Result | Notes |
+|---|---|---|
+| S0 | Pass | Asha sees Ravi's and Meera's books; Ravi sees Asha's, not Meera's; Meera (web) sees Asha's only. Guard: after the test contacts were removed, Sync now on phone A showed "Your contacts look incomplete · Keep everyone / Remove 2 people"; Keep everyone left "Some contacts weren't checked · Sync now". On phone B (no numbers left in the address book) Sync now does nothing visible (polish). |
+| S1 | Pass | Request card on phone B; accept with 2 weeks; borrower card "Ravi said yes · Pick up from Ravi · pickup: QAdesk" and Loans badge "2 need you"; I've returned it (behind "Did you give … back?") → owner card "says they returned"; Got it back → borrower's Loan "Returned · Confirmed" with "How was it?" stars; owner toast "Back on your shelf". Timeline has all four rows on both phones. Live: 4–9 s. WhatsApp ask greets "Hi Ravi!". |
+| S2 | Pass | Borrower rows: "Ravi is reading it right now", "Ravi isn't lending it at the moment", "Lent to someone else · We'll tell you when it's back". The back-watch document exists for the third. "Also stop lending this copy" is offered with Not lending. Live: about 5 s. |
+| S3 | Pass | Grouped card "2 people want MD3 Asha Shared" with "Lend to LendShelf Test Ravi" / "Lend to LendShelf Test Meera" (full names kept apart; earlier bug 4 fixed). The due sheet names Meera's decline. Success sheet: Tell Ravi + Tell Meera ("Sorry, … just went to someone else. It should be back around …"). Meera's web Book page switched to "Lent · back 18 Dec" within 5 s; her Loans: "Lent to someone else · back around 18 Dec · We'll tell you when it's back". When the loan closed (S6), her watch fired ("Available again") and was deleted. |
+| S4 | Pass | Cancel while the Accept sheet was open: the sheet closed by itself and a toast said "… cancelled this request" about 2 s after the tap. Simultaneous accept + cancel: cancel won and no error code appeared, but phone B showed the toast twice (polish). |
+| S5 | Pass | Borrower Loan: "Ravi hasn't got it back yet · From Ravi · due 18 Dec" with Message, I've returned it, Ask for more time (earlier bug B fixed: no pick-up wording). Timelines on both phones keep all six rows, including "not back yet". |
+| S6 | Pass | Ravi as owner: "Not collected? Close this loan" → borrower Loan "Not collected · Ravi closed this loan because it wasn't picked up", no review prompt, live in 5 s. Watchers checked with Asha as owner and Meera as watcher (MD3): the server pushed "Available again" to Meera (no tokens) and cleared the watch. |
+| S7 | Pass | Owner's change sheet → "Due date moved to 25 Dec" with Tell on WhatsApp. The borrower's open Loan updated in 9 s: "due 25 Dec", timeline "… lent it to you (due 18 Dec)", then "Due date moved to 25 Dec". |
+| S8 | Pass | Asha had the copy page open; Ravi set it Hidden: within 5 s "This copy isn't shared any more · See other copies of this book". Moving a requested copy to a private collection asked "Move … to Ravi private? … declines …'s request" → Move and decline; Asha's row: "isn't lending it at the moment". |
+| S9 | Partly | Spec refinement: E9 says deleting a collection moves its books ("No books are deleted"), so a request can't close as "copy removed". Moving them to a shared collection keeps the request, as specified. Moving them to a private collection is the case that matters, and it fails (bug E). |
+| S10 | Pass | Lend a book → app contact Asha → "With you · from Ravi · due 18 Dec" on phone A. |
+| S11 | Pass | Asha wishlisted catalogue "Siddhartha" (the label turns to "Remove from wishlist"); Ravi added the same work; Asha's Home shows "From your wishlist · Available from LendShelf Test Ravi". Server: "On your wishlist" push attempted, skipped for no tokens. |
+| S12 | Pass | Copy lent to a non-app person; Asha's copy page "Notify me when it's back" → "Stop notifying me"; Got it back → "Book is back" attempted for Asha, watch deleted, and Asha's open copy page switched to "Available to borrow · Ask". |
+| S13 | Pass | Ravi borrowed MD16 from Asha, returned it and rated it 4 stars with text. Asha's Book page shows the review; Meera's web Book page: "No reviews in your circle yet". |
+| S14 | Partly | Both phones had the same request open: a decline showed on the borrower's Loan in 5 s. Force-stop and relaunch on both: Home in 4–8 s with matching counts. Pull to refresh still doesn't exist (no `RefreshControl`). |
+| S15 | Pass | Ravi → sign out → Meera on phone B: Home, My books, Loans, Me, the circle and the wishlist were all Meera's; Ravi's search draft was gone; the contacts row showed Meera's own result; kill and reopen kept it. Back to Ravi: overdue card, 18 books, 1 contact and pickup note all back. |
+| S16 | Pass | Throwaway (04) asked Asha for MD16, Asha lent it, 04 deleted the account (the pre-check named the borrowed book). Asha's Loan: "Tara left LendShelf · You can still mark it back or message them on WhatsApp", borrower row "Left LendShelf"; Got it back closed it. Auth user and profile gone. |
+| S17 | Pass | MD10 (Ravi → Asha) due date backdated; job: `overdue: 1`, "Overdue" to both (no tokens). Both Homes: "1 day overdue" cards, strip "1 overdue", Loans badges. Nudge on phone B opened a `wa.me` link in the browser (text not visible there). Ask for more time on phone A opened WhatsApp: "Hi Ravi! Could I keep "MD10 Lend" a little longer? Maybe till 4 Dec?". |
+| S18 | Pass | `lendshelf://loan/<id>` of a Ravi → Meera loan on phone A: "This isn't shared with you any more · The loan was removed, or you're no longer part of it" + Back. No data shown, no crash. |
+| S19 | Pass | Phone A (never asked): after the first Ask, "Get told when … answers?" → Turn on → OS dialog → Allow; Me shows "On". Phone B: permission reset with `pm revoke` + `pm clear-permission-flags`, then Meera's first Ask showed the pre-prompt and the OS dialog; Allow → "On". Logcat: no EAS projectId, so no token. |
+
+### Bugs
+
+**E. Minor: deleting a collection into a private one leaves pending requests open.**
+- Steps: Ravi creates a shared collection and puts a book in it; Asha asks for it; Ravi › Collections › Delete › Move books to "Ravi private" › Delete collection.
+- Expected (E9): the same named confirm as Make private / Move to private ("… declines Asha's request"), then a `notLending` decline.
+- Actual: the dialog only says "contacts won't see these books any more". The request stays `requested`. Asha's Loan still says "Request sent · Ravi can answer in LendShelf" for a copy she can no longer see, and Ravi still has the card.
+- Cause: `src/app/(app)/shelves.tsx:240-242` calls `deleteShelf` directly; only `togglePublic` (`:96-113`) collects requests and declines them first. The server's `deleteShelf` (`functions/src/handlers/shelves.ts`) doesn't decline either.
+- Screenshots: `b28-delete-to-private.png`, `a20-request-on-private.png`.
+
+**F. Minor: lending to the number of someone already on LendShelf says they aren't.**
+- Steps: Lend a book › Someone else › a name and a number that belongs to an app user the owner hasn't saved › Lend.
+- Expected (E7 edge case): loan linked; the owner sees "On LendShelf".
+- Actual: the loan is linked (the borrower sees it under With you), but the success screen says "Meera isn't on LendShelf. Invite them?".
+- Cause: `src/app/(app)/lend/[itemId].tsx:229-233` decides from `borrower.uid`, which is set only when an app contact was picked. `recordLoan` returns only `{ loanId }` (`functions/src/handlers/loans.ts:333`), so the client never learns that the number matched.
+
+### Polish
+- The stale-sheet toast shows for only about 2–3 s. In the accept/cancel race it appeared twice: once from the live check (`src/features/loans/loan-sheets.tsx:228-233`) and once from `resolveStale` after the failed call. F8 says toasts only repeat inline state, but here the toast is the only explanation of why the sheet closed.
+- A saved name whose first word is "LendShelf" gives copy such as "LendShelf can see it in LendShelf", "Get told when LendShelf answers?" and "Thanks. LendShelf and others can see it". It's a test-name artefact, but any short name equal to the app name reads oddly.
+- Me › Contacts › Sync now gives no feedback when the address book has no numbers (`src/app/contacts.tsx:105-112`: `skipped` → `setFound([])`; nothing visible changes and "Checked 6 min ago" stays).
+- After a borrower leaves, the owner's Loans row still says "Waiting for Tara to pick up"; only the Loan screen says she left.
+- Home search rows say "With you · borrowed from Ravi" during the pick-up window (elsewhere: "Pick up from Ravi").
+- A deep link to a loan you were never part of says "isn't shared with you any more".
+- Tapping Clear search on Home also focuses the field and opens the keyboard.
+- `reminderKind` (`functions/src/lib/loans.ts:169-177`) sends the first "Overdue" only in the 24 h after the due time. A date-only due date (noon IST) is caught by the 09:00 run, but a manual run later in the day skips it (S17: the first run gave `overdue: 0`).
+
+### Timings (this run)
+
+| Action | Observed |
+|---|---|
+| Ask → WhatsApp or browser hand-off | 2.5–3.5 s (7 s once, the first ask by a new user on the phone) |
+| Accept or Lend → success sheet | 3.6–9 s |
+| Other phone shows the change (from the tap) | 4–5 s typical; 9–13 s when the callable itself was slow |
+| Send code / verify | 11–46 s / 3–4 s (timed with dump polling, so inflated) |
+| Kill and reopen → Home with data | 4–8 s |
+
+### Not tested
+- Push delivery: no EAS projectId, so no tokens; every push logs "Push skipped: no tokens".
+- Nudge text on a phone: phone B has no WhatsApp and the browser intent URL is redacted in logcat. The text was checked in the earlier web run.
+- S9 "request closes as copy removed": not possible by design (deleting a collection never deletes books).
+
+### Data in `lendshelf-dev`
+- Ravi: MD1 Hobbit (now in "Ravi private"), MD2 Dune A/B/C, MD4 Race, MD5 Dispute, MD6 Pickup, MD8 Hide A (Hidden), MD8 Hide B (Ravi private), MD10 Lend, MD12 Watch, MD18 Private, Siddhartha. Collection "MD9 Shelf" was created and deleted.
+- Asha: MD3 Asha Shared, MD16 Asha Lend; wishlist "Siddhartha". Meera: MD1 Meera Garden.
+- Every loan created in this run is closed (returned, declined, cancelled or not collected). MD10's `dueDate` was backdated to `2026-11-26T06:30Z`, then `2026-11-26T12:00Z`, before it was closed. The job run sent one round of "Overdue" (no tokens).
+- Throwaway 04 created and deleted. Asha's links to Ravi and Meera kept ("Keep everyone").
+
+### Fixes after this run
+- **E fixed:** deleting a shared collection into a private one now shows the named confirm ("Delete Fiction? … The request from Asha (Dune) will be declined.") and declines with `notLending` before the delete (`deleteToPrivateSheet`, shelves screen).
+- **F fixed:** `recordLoan` returns `onApp` (the number belongs to someone on LendShelf), so the success screen says "They'll see it in their Loans tab" and offers no invite. Redeployed to dev.
+- **Overdue timing fixed:** `reminderKind` goes by calendar day in India time: Due soon the day before, Overdue the day after and weekly, whatever hour the job runs. Redeployed to dev.
+- **Polish fixed:** the stale-sheet toast shows once (deduped for 10 s) and stays 6 s; Sync now with no numbers says "Your address book has no phone numbers to check."; the owner's Loans row says "Tara left LendShelf" after the borrower deletes their account.
+- **Still open (polish):** Home search rows during the pick-up window, the "LendShelf" short-name artefact, the deep-link wording for loans you were never part of, Clear search opening the keyboard, no pull to refresh.
+
+### Re-check on phones (2026-11-27)
+Phone B (Ravi) on the build with the fixes; phone A (Asha) on the earlier build. Titles start with `RC`; every RC loan is closed.
+- **E: Pass.** Delete "RC Shelf" › Move books to "Ravi private" › Delete collection → sheet "Delete RC Shelf?" naming the request ("The request from … (RC1 Collection book) will be declined.") with Delete and decline. After confirming, the collection is gone, "Ravi private" went from 3 to 4 books, Asha's Loans row read "Ravi isn't lending it at the moment · Declined" 6.8 s after the tap, and Ravi has no request card.
+- **F: Pass.** Lend a book › Someone else › Meera, 9000000003 → "Lent to Meera · … They'll see it in their Loans tab." with Tell them on WhatsApp and Done; no invite box. Closed with Got it back.
+- **Stale toast: Pass.** Cancel while the Accept sheet was open: the sheet closed and "… cancelled this request" showed once, from 3.6 s after the cancel tap, for about 6.4 s (on-device frame capture every 0.4 s). Near-simultaneous cancel + Lend (sheet showed "Lending…"): cancel won, one toast for 6.0–6.4 s, no repeat in the next 16 s, no error.
+- **Sync feedback: Pass.** Me › Contacts › Sync now with no numbers in the address book → "Your address book has no phone numbers to check." under the count.
+- **New (polish):** on Add a copy, after picking "RC Shelf" the button's visible label is cut to "Add to RC" (its accessibility label is "Add to RC Shelf"). The short-name artefact also shows in the new sheet and toast ("The request from LendShelf …", "LendShelf cancelled this request").
+
+### End state
+- Test contacts deleted on both phones. On phone A the OS had moved them into the phone's Google account, and WhatsApp had added its own entries for them; all were deleted, so the two Google contacts will be in that account's Contacts bin.
+- Phone B's notification permission is granted again after the S19 reset. No test images were used.
+- Web server stopped. Phone A is signed in as Asha and phone B as Ravi, both on Home.

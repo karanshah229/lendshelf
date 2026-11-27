@@ -147,6 +147,10 @@ describe('row lines', () => {
     };
     expect(openRowLine(loan(pickup), 'me', 'Asha', NOW).text).toBe('Waiting for Asha to pick up');
     expect(openRowLine(asBorrower(pickup), 'me', 'Ravi', NOW).text).toBe('Pick up from Ravi');
+    // The borrower deleted their account during the pick-up window (QA S16).
+    expect(openRowLine(loan({ ...pickup, borrowerUid: null }), 'me', 'Tara', NOW).text).toBe(
+      'Tara left LendShelf'
+    );
     expect(openRowLine(loan({ status: 'returnPending' }), 'me', 'Asha', NOW).text).toBe(
       'Asha says it’s back'
     );

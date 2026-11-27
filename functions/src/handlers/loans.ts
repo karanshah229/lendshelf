@@ -264,7 +264,11 @@ export async function cancelRequest(deps: Deps, caller: Caller, data: unknown): 
 }
 
 /** Owner lends a copy directly, to an app user or anyone else. */
-export async function recordLoan(deps: Deps, caller: Caller, data: unknown): Promise<{ loanId: string }> {
+export async function recordLoan(
+  deps: Deps,
+  caller: Caller,
+  data: unknown,
+): Promise<{ loanId: string; onApp: boolean }> {
   const input = parseInput(recordLoanSchema, data);
   const { db } = deps;
   const nowDate = deps.now();
@@ -276,7 +280,7 @@ export async function recordLoan(deps: Deps, caller: Caller, data: unknown): Pro
   }
   const loanRef = db.collection(COL.loans).doc();
 
-  const pushes = await db.runTransaction(async (tx) => {
+  const { pushes, onApp } = await db.runTransaction(async (tx) => {
     const itemRef = db.collection(COL.items).doc(input.itemId);
     const itemSnap = await tx.get(itemRef);
     if (!itemSnap.exists) throw notFound("Book");
@@ -326,11 +330,13 @@ export async function recordLoan(deps: Deps, caller: Caller, data: unknown): Pro
       out.push({ uids: [borrowerUid], message: msg.lentToYou(owner.name, item.title, loanRef.id, due) });
     }
     out.push(...declineOthers(tx, db, others, null, owner.name, now));
-    return out;
+    return { pushes: out, onApp: borrowerUid !== null };
   });
 
   await sendAll(deps, pushes);
-  return { loanId: loanRef.id };
+  // `onApp`: the number belongs to someone on LendShelf, so the success screen doesn't offer an
+  // invite (E7, QA F). The owner typed the number, so this tells them no more than a contact sync.
+  return { loanId: loanRef.id, onApp };
 }
 
 /** Borrower says they've given the book back. */

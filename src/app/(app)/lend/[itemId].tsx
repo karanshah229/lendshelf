@@ -33,11 +33,14 @@ import type { Item, WithId } from '@/types/model';
 const close = () => (router.canGoBack() ? router.back() : router.replace('/my-books'));
 
 /** Owner lends a copy to an app contact, a phone contact, or anyone typed in; with a due date. */
+/** What the success screen shows. `onApp`: the borrower is on LendShelf (picked or matched). */
+type Lent = { borrower: Borrower; due: Date; title: string; onApp: boolean };
+
 export default function LendScreen() {
   const { itemId } = useLocalSearchParams<{ itemId: string }>();
   const uid = useUid();
   const { item, loading } = useItem(itemId);
-  const [done, setDone] = useState<{ borrower: Borrower; due: Date; title: string } | null>(null);
+  const [done, setDone] = useState<Lent | null>(null);
 
   let body: React.ReactNode;
   if (done) {
@@ -93,7 +96,7 @@ function LendForm({
   onLent,
 }: {
   item: WithId<Item>;
-  onLent(r: { borrower: Borrower; due: Date; title: string }): void;
+  onLent(r: Lent): void;
 }) {
   const insets = useSafeAreaInsets();
   const [borrower, setBorrower] = useState<Borrower | null>(null);
@@ -112,13 +115,14 @@ function LendForm({
     if (!borrower) return;
     setSaving(true);
     try {
-      await api.recordLoan({
+      const res = await api.recordLoan({
         itemId: item.id,
         borrowerName: borrower.name.slice(0, 60),
         ...(borrower.phone ? { borrowerPhone: borrower.phone } : {}),
         dueDate: dueDateToIso(due),
       });
-      onLent({ borrower, due, title: item.title });
+      // A typed number can belong to someone on LendShelf too (E7, QA F).
+      onLent({ borrower, due, title: item.title, onApp: !!borrower.uid || res.onApp === true });
       // C11: a recorded loan has a due date to be reminded about.
       void askForPushInContext('lend', { name: borrower.name, title: item.title });
     } catch (e) {
@@ -192,7 +196,7 @@ function LendForm({
   );
 }
 
-function LentSuccess({ borrower, due, title }: { borrower: Borrower; due: Date; title: string }) {
+function LentSuccess({ borrower, due, title, onApp }: Lent) {
   const insets = useSafeAreaInsets();
   const invite = useInvite();
   const firstName = shortName(borrower.name) || borrower.name;
@@ -223,10 +227,10 @@ function LentSuccess({ borrower, due, title }: { borrower: Borrower; due: Date; 
           </Text>
           <Text className="text-center text-sm text-muted-foreground">
             “{title}” is due back {formatShortDate(due)} ({relativeDueLabel(due)}).
-            {borrower.uid ? ' They’ll see it in their Loans tab.' : ''}
+            {onApp ? ' They’ll see it in their Loans tab.' : ''}
           </Text>
         </View>
-        {borrower.uid ? null : (
+        {onApp ? null : (
           // E2: lending to someone not on the app is a natural moment to invite them.
           <View className="w-full items-center gap-2 rounded-xl border border-border px-4 py-4">
             <Text className="text-center text-sm">

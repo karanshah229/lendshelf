@@ -116,6 +116,29 @@ export function makePrivateSheet(
   };
 }
 
+/**
+ * Deleting a shared collection and moving its books into a private one, when some of them have
+ * pending requests (E9): the same named confirm as making the collection private.
+ */
+export function deleteToPrivateSheet(
+  collection: string,
+  target: string,
+  requests: readonly { name: string; title: string }[]
+): SheetCopy {
+  const short = shortNames(requests.map((r) => r.name));
+  const list = joinNames(
+    requests.map((r, i) => `${short[i]} (${r.title})`),
+    20
+  );
+  return {
+    title: `Delete ${collection}?`,
+    description: `Its books move to ${target}, which is private, so people who have your number saved won’t see them any more. ${
+      requests.length === 1 ? 'The request from' : 'Requests from'
+    } ${list} will be declined.`,
+    confirm: 'Delete and decline',
+  };
+}
+
 /** Setting a copy to Not lending with pending requests: Decline (default) or Keep. */
 export function notLendingSheet(names: readonly string[]): SheetCopy {
   const many = names.length > 1;

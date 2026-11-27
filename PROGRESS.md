@@ -1,7 +1,7 @@
 # LendShelf build progress
 
 Status: IN PROGRESS (v1.1 on real devices and real Firebase)
-Last updated: 2026-11-27 13:40 IST
+Last updated: 2026-11-27 15:20 IST
 Driver: main Claude session; workstreams below run as parallel agents.
 
 ## Workstreams (2026-11-21)
@@ -17,6 +17,7 @@ Driver: main Claude session; workstreams below run as parallel agents.
 | 14 | Android sign-in speed | sign-in agent | Done | Pixel: Send code 2.2-3.5 s, Verify 1.3 s; the 36 s figure was a uiautomator timing artifact. The first test phone was slower (>8 s seen once). "Checking this phone…" after 4 s. No console changes needed. |
 | 15 | Push notifications prep | push agent | Ready, waiting on owner | One EAS project, two variants (dev = com.lendshelf.app.dev). eas.json, env-provided Firebase files, push retries + optional Expo access token. Owner steps: README → Push notifications setup. |
 | 16 | Overdue, nudge, expiry, due-soon, pick-up end on dev | time-flows agent | Done | All 6 pass. Bug D fixed: date-only due dates were UTC midnight (05:30 IST), so Overdue fired on the due day and Due soon 2 days early. Now noon IST + calendar-day checks. All 19 dev functions redeployed. |
+| 17 | Two-phone scenarios S0-S19 (docs/ux/MULTI-DEVICE-TESTS.md) | QA agent, lead | Done | 18 pass, 2 partly; the 4 fixes re-checked on phones (all pass). Bug E (delete a shared collection into a private one left requests open) and bug F (lending to an app user's typed number offered an invite) fixed, plus 4 polish items; recordLoan and dailyMaintenance redeployed to dev. Results: docs/ux/QA-ANDROID.md. Prod deploy waits for the user. |
 | 4 | Real Firebase: Firestore, Auth, apps, rules/indexes | lead | Done | Both projects. Dev has test numbers +91 90000 00001–05 (code in firebase-config/TEST-NUMBERS.md). |
 | 5 | Real Firebase: Cloud Functions, Storage bucket, scheduler | functions agent, lead | Done | Both projects: 19/19 functions, buckets in us-central1 (free tier) with rules. Dev checked end to end on web (sign-in, onUserCreated, completeProfile, syncContacts). IAM: 3 roles added by hand, then retries for propagation; see functions/README.md. |
 | 6 | Env switching (`APP_ENV=emulator|dev|prod`) | lead | Done | `npm run firebase:config` downloads git-ignored configs. |

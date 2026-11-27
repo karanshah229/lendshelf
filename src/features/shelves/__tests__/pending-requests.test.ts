@@ -1,5 +1,6 @@
 import { day, loan, ts } from '@/features/loans/__fixtures__/loans';
 import {
+  deleteToPrivateSheet,
   hideSheet,
   makePrivateSheet,
   moveToPrivateSheet,
@@ -109,6 +110,15 @@ describe('sheet wording', () => {
     expect(makePrivateSheet('Fiction', 1, [{ name: 'Ravi', title: 'Dune' }]).description).toBe(
       '1 book will be hidden from people who have your number saved. The request from Ravi (Dune) will be declined.'
     );
+  });
+
+  it('delete a shared collection into a private one names each person (E9, QA E)', () => {
+    const c = deleteToPrivateSheet('Fiction', 'Private', [{ name: 'Asha Rao', title: 'Dune' }]);
+    expect(c.title).toBe('Delete Fiction?');
+    expect(c.description).toBe(
+      'Its books move to Private, which is private, so people who have your number saved won’t see them any more. The request from Asha (Dune) will be declined.'
+    );
+    expect(c.confirm).toBe('Delete and decline');
   });
 
   it('Not lending keeps the choice, Decline first', () => {

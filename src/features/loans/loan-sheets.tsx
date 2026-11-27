@@ -78,6 +78,10 @@ type L = WithId<Loan>;
 
 /** Dismissed-store key for the accept sheet's pickup-note prompt ("Don't ask again"). */
 const PICKUP_PROMPT_KEY = 'pickupPrompt';
+/** "Kabir cancelled this request" explains why a sheet closed, so it stays up longer. */
+const STALE_TOAST_MS = 6000;
+/** The same stale message within this window is shown once (live check + failed call, QA). */
+const STALE_DEDUPE_MS = 10_000;
 
 export type ConfirmKind =
   'gotItBack' | 'notBackYet' | 'notCollected' | 'markReturned' | 'cancelRequest' | 'decline';
@@ -165,13 +169,21 @@ export function useLoanSheets() {
     setDeclining(null);
   };
 
+  /** The last stale message shown, so the live check and the failed call don't both toast it. */
+  const lastStale = useRef<{ key: string; at: number } | null>(null);
+
   /** "Kabir cancelled this request" (+ "Message Zoya" when it expired), after closing the sheet. */
   const showStale = (outcome: StaleOutcome, loan: L) => {
+    const key = `${loan.id}:${outcome.text}`;
+    const now = Date.now();
+    if (lastStale.current?.key === key && now - lastStale.current.at < STALE_DEDUPE_MS) return;
+    lastStale.current = { key, at: now };
     const phone = people.phone(loan);
     const label = `Message ${first(people.name(loan))}`;
     announce(outcome.text);
     if (outcome.message && phone) {
       toast.info(outcome.text, {
+        duration: STALE_TOAST_MS,
         action: {
           label,
           onClick: () =>
@@ -179,7 +191,8 @@ export function useLoanSheets() {
         },
       });
     } else {
-      toast.info(outcome.text);
+      // The toast is the only explanation of why the sheet closed, so it stays longer.
+      toast.info(outcome.text, { duration: STALE_TOAST_MS });
     }
   };
 
