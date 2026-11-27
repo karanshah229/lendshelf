@@ -2,6 +2,7 @@
 
 A private lending library for friends and family. Everyone lists the books they own; anyone who has your number saved in their phone can see your shared books, ask to borrow them, and read reviews. WhatsApp is where people talk — LendShelf is the system of record.
 
+- **Start here, how it all works:** [docs/overview/](docs/overview/README.md) (user flows, core logic, architecture, decisions, feature and test maps) and the [illustrated user guide](docs/user-guide/USER-GUIDE.md)
 - **Product and system spec:** [SPEC.md](SPEC.md)
 - **Decisions made during the build:** [DECISIONS.md](DECISIONS.md)
 - **Backend details (functions, payloads, tests, deploys):** [functions/README.md](functions/README.md)

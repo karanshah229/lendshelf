@@ -18,9 +18,10 @@ Driver: main Claude session; workstreams below run as parallel agents.
 | 15 | Push notifications prep | push agent | Ready, waiting on owner | One EAS project, two variants (dev = com.lendshelf.app.dev). eas.json, env-provided Firebase files, push retries + optional Expo access token. Owner steps: README → Push notifications setup. |
 | 16 | Overdue, nudge, expiry, due-soon, pick-up end on dev | time-flows agent | Done | All 6 pass. Bug D fixed: date-only due dates were UTC midnight (05:30 IST), so Overdue fired on the due day and Due soon 2 days early. Now noon IST + calendar-day checks. All 19 dev functions redeployed. |
 | 17 | Two-phone scenarios S0-S19 (docs/ux/MULTI-DEVICE-TESTS.md) | QA agent, lead | Done | 18 pass, 2 partly; the 4 fixes re-checked on phones (all pass). Bug E (delete a shared collection into a private one left requests open) and bug F (lending to an app user's typed number offered an invite) fixed, plus 4 polish items; recordLoan and dailyMaintenance redeployed to dev. Results: docs/ux/QA-ANDROID.md. Prod deploy waits for the user. |
+| 18 | Documentation: overview docs and illustrated user guide | docs agents, lead | Done | docs/overview/ (start at README.md): user flows F1-F15, feature map, test map, core logic, architecture, decisions and assumptions. docs/user-guide/USER-GUIDE.md: every flow with phone screenshots (70 images, 4.8 MB, test accounts only). Found while capturing, not fixed yet: "Yes, it's back" and "Add to Main shelf" button labels truncated; delete-account pre-check says "Here's what happens to your loans." with nothing after it when there are none; a catalogue pick can save without its cover (The Alchemist); camera may stay active in the Add books Search tab (unconfirmed). Also fixed: changing the due date is offered on active loans only (the server rejects it once the borrower says it's back). |
 | 4 | Real Firebase: Firestore, Auth, apps, rules/indexes | lead | Done | Both projects. Dev has test numbers +91 90000 00001–05 (code in firebase-config/TEST-NUMBERS.md). |
 | 5 | Real Firebase: Cloud Functions, Storage bucket, scheduler | functions agent, lead | Done | Both projects: 19/19 functions, buckets in us-central1 (free tier) with rules. Dev checked end to end on web (sign-in, onUserCreated, completeProfile, syncContacts). IAM: 3 roles added by hand, then retries for propagation; see functions/README.md. |
-| 6 | Env switching (`APP_ENV=emulator|dev|prod`) | lead | Done | `npm run firebase:config` downloads git-ignored configs. |
+| 6 | Env switching (`APP_ENV=dev|prod`; emulator mode removed in row 10) | lead | Done | `npm run firebase:config` downloads git-ignored configs. |
 | 7 | Docs for environments (README, HANDOFF) | docs agent | Done | README: Environments section, Going live rewritten, phone dev/prod build. HANDOFF: 2026-11-21 update. Link to functions/README.md#deploying-to-dev--prod to check once workstream 5 lands. |
 | 8 | Privacy audit, then push to GitHub | audit agent, lead | Done | Audit clean (all files, history, 119 images). fd901b7 pushed to github.com/karanshah229/lendshelf main. Repo pinned to the noreply git identity. |
 | 9 | Dev APK on the phone, real sign-in | lead | Done | Installed 21:54. Test-number sign-in (Play Integrity), account setup and contact matching against the real address book all pass on dev. |
@@ -40,6 +41,7 @@ Driver: main Claude session; workstreams below run as parallel agents.
 - [x] 6. README, HANDOFF.md
 
 ## Commands
-- Emulators: `npm run emulators`, then `npm run seed`
-- Web: `npm run dev:web` (emulators) or `npm run dev:web:real` (lendshelf-dev)
+- Web: `npm run dev:web` (lendshelf-dev)
+- Firebase configs: `npm run firebase:config`
+- Deploy: `npm run deploy:dev`, `npm run deploy:prod` (each has `:dry-run`)
 - Checks: `npm run typecheck`, `npm run lint`, `npm test`, `npm --prefix functions test`

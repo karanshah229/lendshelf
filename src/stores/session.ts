@@ -82,8 +82,8 @@ export function selectStatus(s: SessionState): SessionStatus {
   if (s.authLoading) return 'loading';
   if (!s.user) return 'signedOut';
   if (s.profileLoading) return 'loading';
-  // onUserCreated writes a profile without a name right after sign-up; the user still has to
-  // finish the name step (completeProfile) before the app is usable.
+  // A new user has no named profile until the name step (completeProfile) writes it; until
+  // then the app shows that step.
   return s.profile?.name?.trim() ? 'ready' : 'needsProfile';
 }
 

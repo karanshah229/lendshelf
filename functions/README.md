@@ -47,12 +47,12 @@ Aliases in `../.firebaserc`: `dev` = `lendshelf-dev`, `prod` = `lendshelf-prod`.
 
 | Item | Status |
 |---|---|
-| Params / secrets | None. No `defineString`/`defineSecret`, so Secret Manager is not used. The only env var is `ENFORCE_APP_CHECK`, read from `.env.dev` / `.env.prod` (both `false`). |
+| Params / secrets | Env vars from `.env.dev` / `.env.prod`: `ENFORCE_APP_CHECK` (both `false`). One optional secret, `EXPO_ACCESS_TOKEN`, declared only when `USE_EXPO_ACCESS_TOKEN=true` (off today, so Secret Manager is not used yet). |
 | Callables (16) | v2 (Cloud Run), `asia-south1`, `maxInstances: 10` each |
 | `onItemWritten` | v2 Firestore trigger via Eventarc. The trigger region must match the database: both are `asia-south1`. |
 | `dailyMaintenance` | v2 schedule: one Cloud Scheduler job in `asia-south1`, 09:00 Asia/Kolkata |
 | `onUserCreated` | v1 (1st gen) Auth trigger: v2 has no non-blocking "user created" event |
-| Push | Expo push API: no server key in the functions. Delivery needs the FCM V1 service-account key (Android) and APNs key (iOS) uploaded to the Expo/EAS project. If you turn on Expo's "enhanced push security", the functions would need an Expo access token (not supported today). |
+| Push | Expo push API: no server key in the functions. Delivery needs the FCM V1 service-account key (Android) and APNs key (iOS) uploaded to the Expo/EAS project. If you turn on Expo's "enhanced push security", set `USE_EXPO_ACCESS_TOKEN=true` and the `EXPO_ACCESS_TOKEN` secret (README → Push notifications setup). |
 | Storage bucket | Taken from `FIREBASE_CONFIG` at deploy time (`lendshelf-<env>.firebasestorage.app`); only `deleteAccount` uses it. |
 | Test-only code | The `_testPushes` recorder (`isTestEmulator()` in `src/lib/context.ts`) runs only when `FUNCTIONS_EMULATOR=true` (set only by the emulator, never by Cloud) **and** the project id starts with `demo-`, so real pushes always go to Expo. No project id is hard-coded in `src/`. |
 
@@ -91,7 +91,7 @@ The first deploy needs three roles: Pub/Sub service agent → Service Account To
 
 ### Secrets
 
-None are used today. To add one, declare `defineSecret("NAME")` in code and pass it in the function's `secrets` option. Then run `npm run firebase -- functions:secrets:set NAME --project dev` (it prompts for the value and turns on Secret Manager), and redeploy. Never put secrets in `.env*` files: `.env.dev` and `.env.prod` are committed.
+Only the optional `EXPO_ACCESS_TOKEN` (see the Push row above). To add one, declare `defineSecret("NAME")` in code and pass it in the function's `secrets` option. Then run `npm run firebase -- functions:secrets:set NAME --project dev` (it prompts for the value and turns on Secret Manager), and redeploy. Never put secrets in `.env*` files: `.env.dev` and `.env.prod` are committed.
 
 ### App Check
 
@@ -129,7 +129,7 @@ All callables require a signed-in user. Errors are `HttpsError`s (`invalid-argum
 | `requestLoan` | callable | `{ itemId, message?: string \| null }` → `{ loanId, ownerPhone }` | `message` ≤ 500. Use `ownerPhone` for the WhatsApp deep link. |
 | `respondToRequest` | callable | `{ loanId, accept, dueDate?: ISO \| null, reason?: "readingIt" \| "notLending" \| "lentToSomeoneElse" \| null }` → `{ ok: true }` | Default due date +21 days. Decline: `reason` (optional) is stored as `declineReason` and picks the push text; `lentToSomeoneElse` also creates the borrower's back-watch `watches/{uid}_back_{itemId}`. Accepting declines other open requests for the copy with `declineReason: "lentToSomeoneElse"`, a back-watch for each of those borrowers and the push "<title> went to someone else. We'll tell you when it's back." A request older than 7 days becomes `expired` (error `failed-precondition`). |
 | `cancelRequest` | callable | `{ loanId }` → `{ ok: true }` | Borrower, `requested` only. |
-| `recordLoan` | callable | `{ itemId, borrowerName, borrowerPhone?: string \| null, dueDate?: ISO \| null }` → `{ loanId }` | Owner lends directly. `borrowerPhone` is matched to an app user via `phoneIndex` (sets `borrowerUid`). Declines open requests for the copy, as an accept does (`lentToSomeoneElse`, back-watch, push). The matched borrower gets pushes about this loan (lent to you, due soon, overdue, review prompt) only if they have the owner saved. |
+| `recordLoan` | callable | `{ itemId, borrowerName, borrowerPhone?: string \| null, dueDate?: ISO \| null }` → `{ loanId, onApp }` | Owner lends directly. `onApp`: the number belongs to someone on LendShelf (the success screen then offers no invite). `borrowerPhone` is matched to an app user via `phoneIndex` (sets `borrowerUid`). Declines open requests for the copy, as an accept does (`lentToSomeoneElse`, back-watch, push). The matched borrower gets pushes about this loan (lent to you, due soon, overdue, review prompt) only if they have the owner saved. |
 | `markReturned` | callable | `{ loanId }` → `{ ok: true }` | Borrower: `active` → `returnPending`. |
 | `confirmReturn` | callable | `{ loanId, reason?: "returned" \| "notCollected" \| null }` → `{ ok: true }` | Owner: `active`/`returnPending` → `returned`. Notifies `back` watchers who have the owner saved (only if the copy is shared) with "Book is back", then deletes all `back` watches on the copy; asks the borrower for a review (if they have the owner saved). `reason: "notCollected"` (owner, `active` only): → `cancelled` with `closedReason: "notCollected"`, copy available, **no** review prompt, and the same watchers get "<title> is available again" (`availableAgain`) instead; watches are deleted the same way. |
 | `markNotReturned` | callable | `{ loanId }` → `{ ok: true }` | Owner: "Not back yet", `returnPending` → `active`, `returnMarkedAt` → `null` (daily reminders apply again). Pushes the borrower "<owner> hasn't got <title> back yet." (`notBackYet`) if they have the owner saved. |
@@ -138,9 +138,9 @@ All callables require a signed-in user. Errors are `HttpsError`s (`invalid-argum
 | `unregisterPushToken` | callable | `{ token }` → `{ ok: true }` | Removes the token from the caller's `pushTokens` (call on sign-out). |
 | `deleteAccount` | callable | `{}` → `{ ok: true, deleted: Record<string, number> }` | See "Account deletion" below. The client should sign out afterwards. |
 | `onItemWritten` | Firestore trigger `items/{itemId}` | — | When a copy becomes `sharedWithContacts`, pushes "<owner> added <title>" to wishlist watchers of the Work who have the owner saved. When a copy is deleted, its `requested` loans become `cancelled` and the borrowers get "<owner> removed <title>" (`data.type` `itemRemoved`). |
-| `dailyMaintenance` | schedule `0 9 * * *` Asia/Kolkata | — | Only `requested` and `active` loans are read, so `returnPending`, `ownerLeft` and closed loans get no reminders. Expires `requested` loans ≥ 7 days old (only if unchanged since read: `lastUpdateTime` precondition); "due soon" (24–48 h before; says "tomorrow" or "in 2 days" by India calendar days) and "overdue" (first day, then weekly) reminders. Logic: `runDailyMaintenance(deps)` in `src/handlers/maintenance.ts`. |
+| `dailyMaintenance` | schedule `0 9 * * *` Asia/Kolkata | — | Only `requested` and `active` loans are read, so `returnPending`, `ownerLeft` and closed loans get no reminders. Expires `requested` loans ≥ 7 days old (only if unchanged since read: `lastUpdateTime` precondition); "due soon" (to the borrower, on the day before the due date) and "overdue" (the day after the due date, then weekly) reminders, all by calendar day in India time. Logic: `runDailyMaintenance(deps)` in `src/handlers/maintenance.ts`. |
 
-Due dates: a date-only string like `"2026-12-12"` is midnight UTC that day. Due dates can't be in the past (today is allowed) or more than a year ahead.
+Due dates: a date-only string like `"2026-12-12"` is noon India time (06:30 UTC) that day. Due dates can't be in the past (today is allowed) or more than a year ahead.
 
 ### Cold starts
 

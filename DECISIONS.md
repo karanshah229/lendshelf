@@ -16,7 +16,7 @@ Product decisions agreed with the owner are in SPEC.md §1. This file records sy
 | 10 | Default shelf id is `default_{uid}` | Lets the client and backend create/locate it without a query. |
 | 11 | `isbnIndex` caches the edition details | Repeat scans of the same ISBN need no network. |
 | 12 | Due dates must be today … +1 year; accepting a >7-day-old request expires it | Prevents nonsense dates and stale accepts. |
-| 13 | Reminders: "due soon" 24–48 h before due; "overdue" on day 1 then weekly; to borrower and owner | Gentle, not nagging. |
+| 13 | Reminders by calendar day in India time: "due soon" to the borrower the day before the due date; "overdue" to borrower and owner the day after, then weekly | Gentle, not nagging. (24–48 h windows until 27 Nov: a job run later in the day could skip the first Overdue.) |
 | 14 | If an Open Library work title is non-Latin but the scanned edition's is Latin, use the edition title | Otherwise e.g. Crime and Punishment shows in Russian. |
 | 15 | iOS `useFrameworks: "dynamic"` | React Native Firebase (current) is SPM-only; static frameworks break `pod install`. |
 | 16 | Contacts onboarding step is tracked per device | A new phone needs contacts permission anyway. |

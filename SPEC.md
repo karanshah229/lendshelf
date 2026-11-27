@@ -23,7 +23,7 @@ v1 is **books only**, but records are named generically (`Item`, `Loan`, `catego
 | Custom books | Books without an ISBN/catalogue match. **Private to their creator**: only the creator can attach copies and edit details. No special label in the UI. Can later be upgraded to a catalogue Book (v1.1). |
 | Limits | No limit on books per person. Sizing assumption: ~10 users × ~200 books. |
 | Loans | Owner stays in control. Borrow requests expire after 7 days. Default due date 21 days. Owners can lend to people who aren't on the app. |
-| Loan visibility | Contacts see "Lent out · back 12 Dec". Only owner and borrower see who has it. |
+| Loan visibility | Contacts see "Lent · back 12 Dec". Only owner and borrower see who has it. |
 | Conversation | WhatsApp deep links (`https://wa.me/<digits>?text=...`) with prefilled messages. No in-app chat. |
 | Reminders | Push notifications (Expo push) + a "Nudge on WhatsApp" button for owners. |
 | Wishlist | "Notify me when a contact adds this Book." Also "Notify me when this copy is back." No queues. |
@@ -157,7 +157,11 @@ Every user gets a default public shelf "My books" on sign-up.
 | requestedAt, startedAt, returnMarkedAt, returnedAt | Timestamp \| null | |
 | updatedAt | Timestamp | |
 | declineReason | "readingIt" \| "notLending" \| "lentToSomeoneElse" \| null, optional | on `declined` loans; `lentToSomeoneElse` is set by the server when the copy was lent to someone else |
-| closedReason | "notCollected" \| null, optional | on `cancelled` loans the owner closed because the borrower never picked the book up |
+| closedReason | "notCollected" \| "copyRemoved" \| null, optional | on `cancelled` loans: the owner closed it because the borrower never picked the book up, or the copy was deleted while requested |
+| notBackYetAt | Timestamp \| null, optional | when the owner last said "Not back yet" |
+| returnEvents | { kind: "returnMarked" \| "notBackYet", at }[], optional | every "I've returned it" and "Not back yet", for the timeline |
+| dueChangedAt, firstDueDate | Timestamp \| null, optional | when the owner last moved the due date, and the due date before the first change |
+| borrowerLeftAt | Timestamp \| null, optional | the borrower deleted their account (`borrowerUid` is then null) |
 
 Readable by owner and borrower. **All writes go through callable functions.**
 
@@ -202,7 +206,7 @@ Private to `uid`.
 - `reviews`: create/update/delete by author, id must be `${workId}_${auth.uid}`; read by author or linked viewer.
 - `watches`: owner only, id must match fields.
 - All client-written docs: `createdAt`/`updatedAt` must be `serverTimestamp()`. `authors` must be a list of ≤ 20 strings. `coverUrl` must be `null` or a URL from Open Library covers, Google Books, Firebase Storage (https only). Item copies of catalogue works (`ol_`/`gb_` ids) need no work read, so one batch of new copies is limited only by copies of existing custom works (≤ 19 per batch).
-- Storage covers: JPEG, PNG, WebP or HEIC only.
+- Storage covers: JPEG, PNG, WebP, HEIC or HEIF only.
 
 Client queries must be provable by rules: e.g. `items where ownerId == X and sharedWithContacts == true` (one query per linked owner), `loans where ownerId == me`, `loans where borrowerUid == me`, `links where viewerId == me`, `shelves where ownerId == X and isPublic == true`.
 
@@ -223,7 +227,7 @@ All callables require auth. Errors use `HttpsError` with clear messages.
 | `requestLoan` | callable | `{ itemId, message? }` → `{ loanId, ownerPhone }` | Caller must have the owner saved; item must be shared, `lendable`, `available`; caller not owner; no open request by caller for this item. |
 | `respondToRequest` | callable | `{ loanId, accept, dueDate? (ISO), reason? }` → `{ ok }` | Owner only. Accept → `active` (due default +21 days), item `lent`; other open requests for the item → `declined` with `declineReason: "lentToSomeoneElse"`, a `back` watch for each of those borrowers, push "<title> went to someone else. We'll tell you when it's back." Decline → `declined`, `declineReason` = `reason` (`readingIt` \| `notLending` \| `lentToSomeoneElse`, optional; `lentToSomeoneElse` also creates the back-watch). Push to borrower with the reason's text. |
 | `cancelRequest` | callable | `{ loanId }` | Borrower only, `requested` → `cancelled`. |
-| `recordLoan` | callable | `{ itemId, borrowerName, borrowerPhone?, dueDate? }` → `{ loanId }` | Owner lends directly (also to non-app people). Matches `borrowerPhone` to a user via `phoneIndex`. Item must be available. Open requests for the item are declined as on accept (`lentToSomeoneElse`, back-watch, push). The borrower is pushed only if they have the owner saved. |
+| `recordLoan` | callable | `{ itemId, borrowerName, borrowerPhone?, dueDate? }` → `{ loanId, onApp }` | Owner lends directly (also to non-app people). Matches `borrowerPhone` to a user via `phoneIndex`. Item must be available. Open requests for the item are declined as on accept (`lentToSomeoneElse`, back-watch, push). The borrower is pushed only if they have the owner saved. |
 | `markReturned` | callable | `{ loanId }` | Borrower: `active` → `returnPending`. Push to owner. |
 | `confirmReturn` | callable | `{ loanId, reason? }` | Owner: `active`/`returnPending` → `returned`; item `available`; notify `back` watchers who have the owner saved (shared copies only) and delete all `back` watches for the item; push borrower to review. `reason: "notCollected"` (`active` only): → `cancelled` with `closedReason: "notCollected"`, item `available`, no review push, watchers get "<title> is available again" instead, watches deleted. |
 | `markNotReturned` | callable | `{ loanId }` | Owner: "Not back yet", `returnPending` → `active`, `returnMarkedAt` cleared. Push to borrower (if they have the owner saved). |
@@ -238,6 +242,8 @@ Push sending goes through a small `sendPush(uids, message)` helper that reads `u
 ---
 
 ## 6. Screens
+
+> This screen list is from v1. The current screens (Home, Loans as one ledger, My books, Me, plus the Book, Copy, Loan and Person pages) are in [docs/overview/USER-FLOWS.md](docs/overview/USER-FLOWS.md) and [docs/ux/UX-FLOWS.md](docs/ux/UX-FLOWS.md) §D.
 
 Sign-up (before tabs): **Phone** → **Code** → **Your name** → **Contacts** (explains why, then asks permission; can skip).
 

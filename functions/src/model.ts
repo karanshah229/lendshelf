@@ -27,7 +27,6 @@ export type LoanStatus =
  * sets "lentToSomeoneElse" when an accept or `recordLoan` declines the others.
  */
 export type DeclineReason = "readingIt" | "notLending" | "lentToSomeoneElse";
-/** Why a loan was closed without being returned (status "cancelled"). */
 /** Why a loan was closed without a return: never picked up, or the copy was deleted (requests). */
 export type ClosedReason = "notCollected" | "copyRemoved";
 /** `confirmReturn({ reason })`: "returned" (default) or "notCollected" (never picked up). */

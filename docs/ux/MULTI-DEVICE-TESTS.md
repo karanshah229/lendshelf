@@ -33,7 +33,7 @@ Use fresh books with a run prefix in the title (for example "MD1 Hobbit") so old
 | S6 | Not collected | Ravi accepts. Within the pick-up window Ravi chooses "Not collected". | Loan closes as cancelled, with no review prompt. The book is available again. Watchers get "available again". |
 | S7 | Due date change | Ravi changes the due date on an active loan. | Asha sees the new date live and a "Due date moved" timeline entry. The first due date stays in history. |
 | S8 | Hide or make private while someone looks | Asha has Ravi's copy open. Ravi hides it, then moves another copy to a private shelf. | Asha's screen says the copy isn't shared any more and offers other copies. A pending request is handled as the spec says. |
-| S9 | Delete a shelf with a pending request | Asha requests a book on a shelf of Ravi's. Ravi deletes the shelf. | The request closes as copy removed. Asha sees it in words. |
+| S9 | Delete a shared collection with a pending request | Asha requests a book in a shared collection of Ravi's. Ravi deletes the collection and moves its books to a private one. | A named confirm lists Asha's request; it is declined as "not lending" and Asha sees it in words. (Books are moved, never deleted, so "copy removed" can't happen here.) |
 | S10 | Owner records a loan to an app user | Ravi lends a book to Asha through "Lend a book". | Asha sees it under With you (she has Ravi saved). |
 | S11 | Wishlist hit | Asha wishlists a title that isn't in her circle. Ravi adds that book. | Asha sees it under From your wishlist. The push is attempted (not delivered: no EAS project yet). |
 | S12 | Notify me when it's back | Asha taps "notify me" on Ravi's lent-out book. The loan ends. | The watch fires and clears. Asha sees the book is available. |

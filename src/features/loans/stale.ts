@@ -38,7 +38,9 @@ const FROM: Record<StaleAction, readonly Loan['status'][]> = {
   notBackYet: ['returnPending'],
   notCollected: ['active'],
   markReturned: ['active'],
-  changeDue: ['active', 'returnPending'],
+  // The server allows a due-date change on active loans only: if the borrower said "I've
+  // returned it" meanwhile, the owner sees "<name> says it's back", not a generic error.
+  changeDue: ['active'],
 };
 
 /** Whether a request has passed its 7 days (the server expires it on the next run). */

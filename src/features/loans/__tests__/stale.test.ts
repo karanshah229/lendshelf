@@ -44,6 +44,11 @@ describe('staleOutcome (QA B3, E5 failure exits)', () => {
       staleOutcome('decline', loan({ status: 'requested', requestedAt: ts(day(-1)) }), owner)
     ).toBeNull();
     expect(staleOutcome('gotItBack', loan({ status: 'returnPending' }), owner)).toBeNull();
+    // The server changes due dates on active loans only.
+    expect(staleOutcome('changeDue', loan({ status: 'active' }), owner)).toBeNull();
+    expect(staleOutcome('changeDue', loan({ status: 'returnPending' }), owner)?.text).toMatch(
+      /says it’s back/
+    );
   });
 
   it('never shows codes', () => {

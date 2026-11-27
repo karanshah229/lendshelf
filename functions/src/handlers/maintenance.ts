@@ -14,7 +14,8 @@ export interface MaintenanceResult {
 
 /**
  * Daily job (09:00 Asia/Kolkata): expire week-old requests, send
- * "due in 2 days" and "overdue" reminders. Exported so tests can run it directly.
+ * "due soon" (the day before) and "overdue" (the day after, then weekly) reminders, by calendar
+ * day in India time. Exported so tests can run it directly.
  */
 export async function runDailyMaintenance(deps: Deps): Promise<MaintenanceResult> {
   const { db } = deps;
