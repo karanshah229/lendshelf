@@ -35,13 +35,18 @@ export const NOT_BACK_YET_DAYS = 3;
 /**
  * Whether a loan is in its pick-up window: it came from a request (`requestedAt` set; loans
  * recorded by hand never get one), it's active, and it was accepted less than 48 h ago.
- * Time-based only: both devices switch wording at the same moment.
+ * Time-based, so both devices switch wording at the same moment, except that it ends early once
+ * anyone has talked about a return ("I've returned it" / "Not back yet"): the book was clearly
+ * collected (QA Pixel B).
  */
 export function inPickupWindow(
-  loan: Pick<Loan, 'status' | 'requestedAt' | 'startedAt'>,
+  loan: Pick<Loan, 'status' | 'requestedAt' | 'startedAt'> &
+    Partial<Pick<Loan, 'returnMarkedAt' | 'notBackYetAt' | 'returnEvents'>>,
   now: Date = new Date()
 ): boolean {
   if (loan.status !== 'active' || !loan.requestedAt || !loan.startedAt) return false;
+  if (loan.returnMarkedAt || loan.notBackYetAt || (loan.returnEvents?.length ?? 0) > 0)
+    return false;
   const since = now.getTime() - loan.startedAt.toMillis();
   // A startedAt slightly in the future is clock skew between this device and the server.
   return since < PICKUP_WINDOW_MS;

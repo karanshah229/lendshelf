@@ -28,6 +28,18 @@ const GENERIC: Record<string, string> = {
 
 const OFFLINE = 'You’re offline. Check your connection and try again.';
 const NO_SERVER = 'Can’t reach LendShelf. Check your connection and try again.';
+const CATALOGUE_UNAVAILABLE =
+  'The book catalogue isn’t responding right now. Try again in a moment, or add the book by hand.';
+
+/** The server reached us, but Open Library / Google Books didn't answer (resolveBook). */
+function isCatalogueUnavailable(e: unknown): boolean {
+  const details = typeof e === 'object' && e ? (e as { details?: unknown }).details : undefined;
+  return (
+    typeof details === 'object' &&
+    details !== null &&
+    (details as { reason?: unknown }).reason === 'catalogue'
+  );
+}
 
 /** Codes whose message is technical rather than written for users. */
 const TECHNICAL = new Set(['internal', 'unavailable', 'deadline-exceeded', 'unknown']);
@@ -43,8 +55,14 @@ const LOAN_STATE_WORDS: [RegExp, string][] = [
   [/this loan is already returned/, 'This book is already back.'],
   [/this loan is an active loan/, 'This book is already lent.'],
   [/this loan is still a request/, 'This is still a request.'],
-  [/this loan is waiting for the owner to confirm/, 'This is waiting for the owner to confirm the return.'],
-  [/this loan is closed because the owner left/, 'This loan was closed because the owner left LendShelf.'],
+  [
+    /this loan is waiting for the owner to confirm/,
+    'This is waiting for the owner to confirm the return.',
+  ],
+  [
+    /this loan is closed because the owner left/,
+    'This loan was closed because the owner left LendShelf.',
+  ],
 ];
 
 /** "Backend error status: X [400]" / "… [0]": the web SDK appends the HTTP status. */
@@ -62,6 +80,7 @@ function isOffline(): boolean {
  * Functions SDK reports a failed fetch as `internal` with HTTP status 0.
  */
 export function isNetworkError(e: unknown): boolean {
+  if (isCatalogueUnavailable(e)) return false;
   const code = errorCode(e);
   if (code === 'unavailable' || code === 'auth/network-request-failed') return true;
   const message = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
@@ -96,6 +115,7 @@ export function errorMessage(
   const raw = rawCode(e);
   const code = errorCode(e);
   if (code && AUTH_MESSAGES[code]) return AUTH_MESSAGES[code];
+  if (isCatalogueUnavailable(e)) return CATALOGUE_UNAVAILABLE;
   if (isNetworkError(e)) return isOffline() ? OFFLINE : NO_SERVER;
 
   // Strip React Native Firebase's "[functions/not-found] " prefix and the web SDK's

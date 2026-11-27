@@ -21,6 +21,19 @@ describe('inPickupWindow', () => {
     expect(inPickupWindow({ ...accepted, startedAt: ts(hoursAgo(72)) }, NOW)).toBe(false);
   });
 
+  it('ends early once a return has been talked about (QA Pixel B)', () => {
+    const fresh = { ...accepted, startedAt: ts(hoursAgo(1)) };
+    expect(inPickupWindow({ ...fresh, notBackYetAt: ts(hoursAgo(0.5)) }, NOW)).toBe(false);
+    expect(inPickupWindow({ ...fresh, returnMarkedAt: ts(hoursAgo(0.5)) }, NOW)).toBe(false);
+    expect(
+      inPickupWindow(
+        { ...fresh, returnEvents: [{ kind: 'returnMarked', at: ts(hoursAgo(0.5)) }] },
+        NOW
+      )
+    ).toBe(false);
+    expect(inPickupWindow({ ...fresh, returnEvents: [] }, NOW)).toBe(true);
+  });
+
   it('never applies to loans recorded by hand or that are not active', () => {
     expect(
       inPickupWindow({ status: 'active', requestedAt: null, startedAt: ts(hoursAgo(1)) }, NOW)

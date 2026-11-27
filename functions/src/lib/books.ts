@@ -328,7 +328,12 @@ function requireIsbn(raw: string): string {
 function unavailable(err: unknown): HttpsError {
   // The cause is logged, not sent to the client (it holds internal URLs).
   logger.warn("Book catalogue unavailable", { error: String(err) });
-  return new HttpsError("unavailable", "The book catalogue couldn't be reached. Please try again in a moment.");
+  // `reason` lets the app tell a slow/blocked catalogue apart from "no connection" (QA Pixel C).
+  return new HttpsError(
+    "unavailable",
+    "The book catalogue isn't responding right now. Try again in a moment, or add the book by hand.",
+    { reason: "catalogue" },
+  );
 }
 
 /** Build a work from an edition when Open Library has no work record for it. */

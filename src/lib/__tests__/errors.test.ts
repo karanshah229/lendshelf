@@ -3,6 +3,23 @@ import { errorMessage, isNetworkError } from '@/lib/errors';
 /** What the web Functions SDK throws: code + message with the HTTP status appended. */
 const fnError = (code: string, message: string) => Object.assign(new Error(message), { code });
 
+describe('catalogue outages (QA Pixel C)', () => {
+  it('says the catalogue is slow, not that the user is offline', () => {
+    const e = Object.assign(
+      fnError('functions/unavailable', 'The book catalogue isn’t responding'),
+      {
+        details: { reason: 'catalogue' },
+      }
+    );
+    expect(isNetworkError(e)).toBe(false);
+    expect(errorMessage(e)).toMatch(/book catalogue isn’t responding.*add the book by hand/);
+  });
+
+  it('still treats a plain unavailable as a connection problem', () => {
+    expect(isNetworkError(fnError('functions/unavailable', 'unavailable'))).toBe(true);
+  });
+});
+
 describe('errorMessage (QA B3: never codes or "[400]")', () => {
   it('drops the web SDK status suffix and rewrites loan-state errors in words', () => {
     expect(
@@ -14,7 +31,12 @@ describe('errorMessage (QA B3: never codes or "[400]")', () => {
       )
     ).toBe('This request was cancelled.');
     expect(
-      errorMessage(fnError('functions/failed-precondition', 'This request expired (requests last 7 days). [400]'))
+      errorMessage(
+        fnError(
+          'functions/failed-precondition',
+          'This request expired (requests last 7 days). [400]'
+        )
+      )
     ).toBe('This request expired (requests last 7 days).');
     expect(errorMessage(fnError('functions/not-found', 'Loan not found. [404]'))).toBe(
       'Loan not found.'
@@ -26,7 +48,9 @@ describe('errorMessage (QA B3: never codes or "[400]")', () => {
       'You can’t do that any more.'
     );
     expect(
-      errorMessage(fnError('functions/failed-precondition', 'Backend error status: FAILED_PRECONDITION [400]'))
+      errorMessage(
+        fnError('functions/failed-precondition', 'Backend error status: FAILED_PRECONDITION [400]')
+      )
     ).toBe('This has changed since you opened it.');
     expect(errorMessage(fnError('functions/already-exists', 'already-exists [409]'))).toBe(
       'That’s already done.'

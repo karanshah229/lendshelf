@@ -150,3 +150,73 @@ Function logs show "Starting new instance" cold starts (for example `synccontact
 - Meera: The Alchemist, Project Hail Mary, a review of Atomic Habits, a wishlist entry.
 - Asha's circle links to Ravi and Meera kept ("Keep everyone").
 - Throwaway user 04 created and deleted.
+
+## Re-test on Pixel 6a (2026-11-27)
+
+Second phone: Pixel 6a, Android 17, 1080 × 2400, dark mode, dev build with the fixes from `a85e8cf`, real `lendshelf-dev`. WhatsApp is not installed on this phone, so every WhatsApp hand-off opened the browser instead (confirmed, then Back).
+
+The web build could not be used: Ravi's web sign-in got a reCAPTCHA image challenge, which QA does not solve. Instead, Asha (01) and Ravi (02) took turns on the phone (sign out, sign in), which covered the two-person flows. The short-name and setup-card checks need hand-added web contacts and were checked only in code and unit tests. No throwaway user was created.
+
+### Fixes
+
+| Fix / check | Result | Notes |
+|---|---|---|
+| 1 Push pre-prompt | Pass | After Ask: "Get told when Ravi answers?" → Turn on notifications → OS dialog. Denied path: Don't allow, then Me › Push notifications asked the OS again (not Settings); Allow → row shows "On". Logcat: `[push] No EAS projectId … skipping push registration`, as expected. |
+| 2 Red confirm buttons | Pass | Centre taps work on Cancel request, Decline (with reason), Discard (Add books), Hide and decline, Not back yet. Each dialog button is now one touch target. |
+| 3 Add books Back | Pass | Back with the keyboard up hides it first. Back with a 1-item queue → "Discard 1 scanned book?" (Keep scanning / Discard). Back on Review returns to Type it in with the text kept. Back on a typed form → "Discard this book?". |
+| 4 Short-name collisions | Not tested on device | Needs hand-added web contacts (web blocked). `short-names.test.ts` passes. On the phone, names showed as "Ravi", "Meera", "Asha" (profile first names, no saved names). |
+| 5 Keyboard over dialogs | Pass, with a new issue | Accept sheet: "Lend to Asha" and Cancel stay above the keyboard. Ask and Edit profile are also fine. When the sheet is tall, its title and × move under the status bar (new bug A). |
+| 6 Hidden copy | Pass (navigated) | After Asha hid a requested copy, Ravi opened it from the declined loan: "This copy isn't shared any more" + "See other copies of this book" → book page. The "already open when hidden" case needs two devices and was not tested. |
+| 7 Timeline keeps Not back yet | Pass | New loan: asked → accepted → returned → not back yet → returned → confirmed. All six rows are shown on Ravi's loan. |
+| 8 Return during pick-up window | Pass, with a new issue | "I've returned it" is next to "Not picking it up?", behind "Did you give 'Sapiens' back to Ravi?". After the owner says Not back yet, the loan goes back to "Pick up from Ravi" (new bug B). |
+| 9 Setup card copy | Code only | `setupBooksLine` / `libraryWelcomeLine` now say "if they have your number saved". Not seen on a device (needs a one-way web user). |
+| 10 WRITE_CONTACTS | Pass | `dumpsys package` requests only READ_CONTACTS, CAMERA and POST_NOTIFICATIONS. |
+
+### Previously untested
+
+| Check | Result | Notes |
+|---|---|---|
+| Contacts denied → Contacts are off | Pass | The first deny keeps "Find your people" with no change (Android can still ask). The second deny → "Contacts are off · Open Settings / Continue without". After `pm grant` and Open Settings → Back, the app synced by itself. |
+| Camera → live scanner | Pass | "While using the app" → the viewfinder overlay and torch button appear, and the camera service shows the app holding camera 0. Backed out without scanning. |
+| Android 17 | Pass | Edge-to-edge insets are right on tabs, headers and the tab bar. The app opts out of predictive back (`predictiveBackGestureEnabled: false`; logcat "OnBackInvokedCallback is not enabled"). The edge swipe and the Back key both work. |
+| Kill and reopen | Pass | Force-stop, then launch: activity drawn in 0.5 s, Home with data in about 6 s. |
+
+### New bugs
+
+**A. Minor: dialogs lifted by the keyboard go under the status bar.** Accept sheet with the pickup field focused: the title sits on the clock, and × overlaps the status icons (`28-accept-keyboard.png`). Cause: `src/components/ui/dialog-keyboard-frame.tsx:18-21` has no top safe-area inset.
+
+**B. Minor: after "Not back yet" in the pick-up window, the loan looks un-picked-up.** Borrower: "Pick up from Ravi" with "Not picking it up? Tell Ravi" (the not-collected action). Owner: "Waiting for Asha to pick up". This shows while the timeline says it was returned (`35-asha-notbackyet.png`). Cause: `src/features/loans/needs-you.ts:40-48` (`inPickupWindow`) only checks `startedAt`, so `loan-view.ts:131` returns `pickup`. Ignore the window once a return event exists.
+
+**C. Minor: catalogue outage reads as "Can't reach LendShelf. Check your connection".** ISBN lookups (Scan, typed) failed for two ISBNs after 12–16 s while the phone was online. From the test PC, Open Library took about 19 s and Google Books returned 429. The server throws `unavailable` ("The book catalogue couldn't be reached", `functions/src/lib/books.ts:328-331`), but `src/lib/errors.ts:66` treats every `unavailable` as no connection. Manual add still works; its catalogue check gives up in about 4 s.
+
+**Polish.** In onboarding on a phone whose address book yields no numbers, "Find your people" says "None of your contacts are on LendShelf yet" while Home shows 2 friends (links from another device kept). Me › Contacts then reads "not checked yet". With the keyboard up on Scan, the scanned list is hidden completely, not just shrunk.
+
+### Timings (client, this phone, ±1 s)
+
+| Action | 1st | Later |
+|---|---|---|
+| Send code (native phone auth) | 39 s | 36–39 s; 13 s and 24 s once each |
+| Verify code | 5–7 s | 4–5 s |
+| Ask → WhatsApp hand-off | about 7 s (Asha), 5.6 s (Ravi) | about 1 s; 3.4 s measured with logcat |
+| Accept | 4.8 s | n/a |
+| Cancel request | 9 s | 10 s |
+| Decline / mark returned / not back yet / hide and decline | 4–5 s | 4–5 s |
+| Add by hand: catalogue check + add | 4.5 s + 4 s | 4.5 s + 4 s |
+| ISBN lookup | fails at 12–16 s | same (catalogue down) |
+
+### App Check
+- The app has no App Check provider. Every callable logs `FirebaseContextProvider: Error getting App Check token … No AppCheckProvider installed` about 0.4 s after the tap and sends a placeholder token. Firebase Auth logs the same (`LocalRequestInterceptor`).
+- Server logs from 21 Nov show the result: "Decoding App Check token failed", then "Allowing request … because enforcement is disabled". `functions:log` returned nothing newer.
+- The failed token fetch is fast, so it is not where the seconds go. In a marked Ask, the tap was at 0 s, the App Check warning at 0.4 s and WhatsApp at 3.5 s, so about 3 s is the callable round trip.
+- Cancel staying at about 10 s looks like a cold instance.
+- Sign-in's 36–39 s passes before the Auth request leaves the app (no app log lines in between), which points at Firebase Auth's app verification (Play Integrity / reCAPTCHA), not App Check.
+
+### End state
+- Pixel signed in as Asha on Home.
+- Permissions: READ_CONTACTS granted (flagged user-fixed after the deny test), CAMERA granted while in use, POST_NOTIFICATIONS granted.
+- Web server stopped, viewport reset, no throwaway users.
+
+### New test data in `lendshelf-dev`
+- Asha: "QA Retest Pixel" (Lendable) and "QA Retest Pixel Two" (Hidden), both by Test Author.
+- Ravi: a returned Sapiens loan to Asha with the full timeline, and pickup note "QAdesk" (if the accept sheet saved it).
+- Declined and cancelled requests in both users' Recent lists.

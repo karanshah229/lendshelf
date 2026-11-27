@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
  * Keeps a centred dialog clear of the on-screen keyboard (QA-ANDROID bug 5).
@@ -14,11 +15,23 @@ import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
  */
 export function DialogKeyboardFrame({ children }: { children: ReactNode }) {
   if (Platform.OS === 'web') return <>{children}</>;
+  return <NativeFrame>{children}</NativeFrame>;
+}
+
+function NativeFrame({ children }: { children: ReactNode }) {
+  // Keep the dialog below the status bar when the keyboard pushes it up (QA Pixel A).
+  const insets = useSafeAreaInsets();
   return (
     <KeyboardAvoidingView behavior="padding" style={{ flex: 1, alignSelf: 'stretch' }}>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center' }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingTop: insets.top + 8,
+          paddingBottom: insets.bottom + 8,
+        }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         bounces={false}

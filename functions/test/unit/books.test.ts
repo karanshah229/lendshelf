@@ -332,7 +332,8 @@ describe("resolveBook", () => {
     });
     const err = await resolveBook({ isbn: "9780000000002" }, { store: mem.store, fetch: f.fn }).catch((e: unknown) => e);
     expect(err).toMatchObject({ code: "unavailable" });
-    expect((err as { details?: unknown }).details).toBeUndefined();
+    // Only a machine-readable reason, so the app can say "catalogue" instead of "offline".
+    expect((err as { details?: unknown }).details).toEqual({ reason: "catalogue" });
     expect((err as Error).message).not.toContain("openlibrary");
   });
 });
