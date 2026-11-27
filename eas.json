@@ -1,0 +1,46 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "development",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_ENV": "dev",
+        "APP_ID": "com.lendshelf.app.dev"
+      }
+    },
+    "dev": {
+      "distribution": "internal",
+      "environment": "preview",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_ENV": "dev",
+        "APP_ID": "com.lendshelf.app.dev"
+      }
+    },
+    "prod": {
+      "distribution": "store",
+      "environment": "production",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "APP_ENV": "prod",
+        "APP_ID": "com.lendshelf.app"
+      }
+    }
+  },
+  "submit": {
+    "prod": {}
+  }
+}

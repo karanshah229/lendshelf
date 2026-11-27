@@ -131,14 +131,76 @@ Deploy steps, IAM gotchas and the budget alert are in [functions/README.md → D
 
 1. **Prod signing keys.** Add the SHA-1 and SHA-256 of the real release key and of the Play app signing key to the prod Android app, then run `npm run firebase:config -- prod`. Phone sign-in on prod doesn't work until then. Local release APKs are signed with the debug keystore (android/app/build.gradle), so they only work against dev.
 2. **App Check.** The app doesn't include the App Check SDK yet. Add it, then set `ENFORCE_APP_CHECK=true` for the functions (see functions/README.md).
-3. **Expo / EAS** (not set up yet; there is no `eas.json`):
-   - Run `npx eas-cli init`. app.config.ts is dynamic, so EAS can't write the id into it: set `EAS_PROJECT_ID` (or `EAS_PROJECT_ID_DEV` / `EAS_PROJECT_ID_PROD`) when building, or keep `extra.eas.projectId` in an app.json (app.config.ts keeps it). Push registration is skipped until the id exists.
-   - Upload FCM v1 credentials for Android push (a service-account key of the Firebase project in that build's google-services.json, so dev and prod each need their own; both use `com.lendshelf.app`, so use one EAS project per environment) and let EAS manage the APNs key for iOS.
-   - EAS builds can't see `firebase-config/` because it's git-ignored. Provide the files to EAS, for example as EAS file environment variables, and have app.config.ts read them from there.
+3. **Expo / EAS and push.** `eas.json` is in place, but there is no EAS project or push credential yet. Follow [Push notifications setup](#push-notifications-setup).
 4. **Builds for testers**:
-   - Android APK: `npx eas-cli build -p android --profile preview` (once EAS is set up), or build locally (see [Android build](#android-build)).
+   - Android APK: `npx eas-cli build -p android --profile dev` (once EAS is set up), or build locally (see [Android build](#android-build)).
    - iOS: `npx eas-cli build -p ios`, then `npx eas-cli submit -p ios` to TestFlight (needs your Apple Developer account).
 5. **Before wider release**: review the privacy policy screen. Google Books lookups currently run without an API key.
+
+## Push notifications setup
+
+Pushes go through the Expo push service. Expo hands them to FCM on Android and APNs on iOS. The backend sends them from Cloud Functions (`functions/src/lib/push.ts`). The app registers its Expo push token with `registerPushToken` (`src/lib/push.ts`).
+
+**Layout.** There is one EAS project, `lendshelf`, with two app variants:
+
+| EAS build profile | `APP_ENV` | App id (Android and iOS) | Firebase project | Output |
+|---|---|---|---|---|
+| `development` | `dev` | `com.lendshelf.app.dev` | `lendshelf-dev` | Dev client APK / iOS internal build |
+| `dev` | `dev` | `com.lendshelf.app.dev` | `lendshelf-dev` | APK, internal distribution |
+| `prod` | `prod` | `com.lendshelf.app` | `lendshelf-prod` | AAB for Play, iOS store build |
+
+Why:
+
+- EAS stores push credentials per app id. A separate dev id lets each id carry the FCM key of its own Firebase project.
+- Both variants share one EAS project id, so all Expo push tokens belong to one project.
+- The dev build installs next to the store app, and the two signing keys never clash.
+- Local builds are unchanged. They keep `com.lendshelf.app` unless you set `APP_ID=com.lendshelf.app.dev`.
+
+**Firebase config files on EAS.** `firebase-config/` is git-ignored, so EAS never sees it. app.config.ts first reads the path in `GOOGLE_SERVICES_JSON`, `GOOGLE_SERVICE_INFO_PLIST` and `FIREBASE_WEB_JSON`. If a variable is unset or its file doesn't exist, it falls back to `firebase-config/<env>/`. On EAS these are "file" environment variables. Native builds on EAS don't need `web.json`.
+
+### Owner steps
+
+You need an Expo account. iOS also needs a paid Apple Developer account. Keep every key file outside the repo, and delete it once it's uploaded.
+
+1. Log in to EAS: `npx eas-cli login`.
+2. Create the EAS project: `npx eas-cli init`. It can't edit the dynamic app.config.ts, so it prints the project id. Paste that id into `EAS_PROJECT_ID_DEFAULT` in app.config.ts and commit it. The id isn't a secret. `EAS_PROJECT_ID`, `EAS_PROJECT_ID_DEV` or `EAS_PROJECT_ID_PROD` still override it if set.
+3. Register the dev variant in Firebase. In the `lendshelf-dev` console, add an Android app and an iOS app, both with the id `com.lendshelf.app.dev`. Download the new `google-services.json` and `GoogleService-Info.plist` for these apps. For local builds of this variant, also add the debug keystore's SHA-1 and SHA-256 to the new Android app. (`npm run firebase:config` takes the first app it finds, so it may fetch the other app's `.plist`.)
+4. Upload the Firebase config files to EAS. On expo.dev, open the project, then **Environment variables** → **Add variables**. Use type **File** and visibility **Secret**:
+   - `GOOGLE_SERVICES_JSON`: the dev file for `development` and `preview`; `firebase-config/prod/google-services.json` for `production`.
+   - `GOOGLE_SERVICE_INFO_PLIST`: the same split, with the `.plist` files.
+   - The CLI can do this too (`npx eas-cli env:create --help` lists the file option).
+5. Check that FCM V1 is on. In each Firebase project, open **Project settings** → **Cloud Messaging**. "Firebase Cloud Messaging API (V1)" must say Enabled.
+6. Create an FCM V1 key for `lendshelf-dev`. Open **Project settings** → **Service accounts** → **Generate new private key**.
+7. Upload it for the dev app id. Run `npx eas-cli credentials -p android`. Pick the `dev` profile, then **Google Service Account** → **Manage your Google Service Account Key for Push Notifications (FCM V1)** → **Set up** → **Upload a new service account key**.
+8. Repeat steps 6 and 7 for `lendshelf-prod`, with the `prod` profile (`com.lendshelf.app`).
+9. iOS only: register your test devices with `npx eas-cli device:create`. On the first iOS build, answer yes to "Setup Push Notifications" and to generating a new APNs key. One APNs key serves both bundle ids. You can also do this later from `npx eas-cli credentials -p ios`.
+10. Add the EAS signing fingerprints to Firebase, or phone sign-in fails. `npx eas-cli credentials -p android` shows the SHA-1 and SHA-256 per app id. Add them to the matching Android app in Firebase. For prod, also add the Play app signing key later.
+11. Optional, recommended before prod: turn on enhanced push security.
+    1. On expo.dev, create an access token (**Account settings** → **Access tokens**).
+    2. Store it for each project: `npm --prefix functions run firebase -- functions:secrets:set EXPO_ACCESS_TOKEN --project dev` (then `--project prod`).
+    3. Set `USE_EXPO_ACCESS_TOKEN=true` in `functions/.env.dev` and `functions/.env.prod`, then deploy the functions.
+    4. Only then switch on **Enhanced security for push notifications** on expo.dev. Sends without the token fail from that moment.
+    5. Don't set `USE_EXPO_ACCESS_TOKEN=true` before the secret exists: the deploy fails.
+12. Build: `npx eas-cli build -p android --profile dev`. Install the APK from the link or QR code. The store build is `npx eas-cli build --profile prod`.
+
+### Testing a push end to end (dev)
+
+1. Install the `dev` build on a real phone. Sign in with a dev test number.
+2. Allow notifications (the pre-prompt, or **Me** › **Notifications**).
+3. In the `lendshelf-dev` Firestore console, open `users/{uid}`. `pushTokens` should hold an `ExponentPushToken[...]`. If it's empty, check the device log for "No EAS projectId".
+4. Send a test push from https://expo.dev/notifications to that token. It should arrive.
+5. Now test the backend. Run `npm run dev:web` and sign in with a second test number. Save the phone user's number and ask to borrow one of their books. The phone should show "Borrow request".
+6. If nothing arrives, read the function logs: `npm --prefix functions run firebase -- functions:log --project dev`. "Expo push ticket errors" with `InvalidCredentials` means the FCM key (step 7) or the APNs key (step 9) is missing.
+
+### Costs
+
+- The Expo push service is free.
+- EAS Build's free plan has a small monthly build quota in a low-priority queue. Paid plans add builds. See expo.dev/pricing.
+- iOS needs the Apple Developer Program (yearly fee). Play needs a one-off developer fee.
+- The access-token secret costs cents at most in Secret Manager.
+- Free alternatives to EAS Build:
+  - Build locally with Gradle (see [Android build](#android-build)). Pushes still work, because the credentials live in the EAS project, not the build. For the dev variant, set `APP_ID=com.lendshelf.app.dev` and put the dev app's `google-services.json` in `firebase-config/dev/`.
+  - `npx eas-cli build --local` runs the EAS build on your own machine. It needs macOS or Linux; on Windows, use WSL.
 
 ## Android build
 

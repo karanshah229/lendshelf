@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { BookHeart } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
 import { AuthShell } from '@/components/auth-shell';
@@ -13,11 +13,23 @@ import { startPhoneSignIn } from '@/lib/firebase';
 import { normalisePhone, type CountryCode } from '@/lib/phone';
 import { usePhoneAuthStore } from '@/stores/phone-auth';
 
+/** After this long without an answer, the button says what the wait is. */
+const SLOW_AFTER_MS = 4000;
+
 export default function PhoneScreen() {
   const [country, setCountry] = useState<CountryCode>('IN');
   const [number, setNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  // Before the SMS goes out, Firebase checks the app (Play Integrity, or reCAPTCHA).
+  // That usually takes 2-3 s in total, but much longer on a slow network.
+  const [slow, setSlow] = useState(false);
+
+  useEffect(() => {
+    if (!sending) return;
+    const t = setTimeout(() => setSlow(true), SLOW_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [sending]);
 
   const e164 = normalisePhone(number, country);
 
@@ -28,6 +40,7 @@ export default function PhoneScreen() {
       return;
     }
     setError(null);
+    setSlow(false);
     setSending(true);
     try {
       const pending = await startPhoneSignIn(e164);
@@ -51,7 +64,7 @@ export default function PhoneScreen() {
         <>
           <Button size="lg" onPress={submit} disabled={sending || !number.trim()}>
             {sending ? <ActivityIndicator size="small" /> : null}
-            <Text>{sending ? 'Sending code…' : 'Send code'}</Text>
+            <Text>{sending ? (slow ? 'Checking this phone…' : 'Sending code…') : 'Send code'}</Text>
           </Button>
           <Text className="text-center text-xs leading-4 text-muted-foreground">
             People who have your number saved will be able to see the books you share.

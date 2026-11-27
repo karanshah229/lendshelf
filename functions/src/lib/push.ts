@@ -89,36 +89,90 @@ type FetchForPush = (
 ) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 /**
- * Transport that POSTs to the Expo push API in batches of 100. Logs failures.
- * Returns tokens whose tickets say DeviceNotRegistered. (Receipts, fetched
- * later from Expo, can report more; they aren't read.)
+ * Name of the optional Firebase secret that holds an Expo access token. Needed
+ * once "Enhanced security for push notifications" is on for the Expo account:
+ * Expo then rejects sends without `Authorization: Bearer <token>`. It is bound
+ * to the functions only when USE_EXPO_ACCESS_TOKEN=true (see index.ts and the
+ * README's "Push notifications setup"), and is read from process.env.
  */
-export function expoTransport(fetchImpl: FetchForPush): PushTransport {
+export const EXPO_ACCESS_TOKEN_SECRET = "EXPO_ACCESS_TOKEN";
+
+/** Ticket error codes other than DeviceNotRegistered, counted (for the logs). */
+export function ticketErrorCounts(body: unknown): Record<string, number> {
+  const data = typeof body === "object" && body !== null ? (body as { data?: unknown }).data : undefined;
+  if (!Array.isArray(data)) return {};
+  const counts: Record<string, number> = {};
+  for (const ticket of data) {
+    const t = ticket as { status?: unknown; details?: { error?: unknown } } | null;
+    if (t?.status !== "error") continue;
+    const code = typeof t.details?.error === "string" ? t.details.error : "unknown";
+    if (code === "DeviceNotRegistered") continue;
+    counts[code] = (counts[code] ?? 0) + 1;
+  }
+  return counts;
+}
+
+export interface ExpoTransportOptions {
+  /** Expo access token (enhanced push security). Sent as a Bearer token when set. */
+  accessToken?: string;
+  /** Extra attempts after an HTTP 429 or 5xx or a network error. Default 2. */
+  retries?: number;
+  /** Test hook for the backoff wait. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Transport that POSTs to the Expo push API in batches of 100 (Expo's limit).
+ * Retries HTTP 429, 5xx and network errors with backoff (0.5 s, then 1.5 s),
+ * as Expo asks; other 4xx are not retried. Logs failures and ticket errors
+ * such as InvalidCredentials (no FCM V1 key or APNs key on EAS). Returns the
+ * tokens whose tickets say DeviceNotRegistered.
+ *
+ * Receipts (POST /push/getReceipts, about 15 minutes later, kept 24 h) can
+ * report more dead tokens and FCM/APNs errors; they aren't read yet.
+ */
+export function expoTransport(fetchImpl: FetchForPush, opts: ExpoTransportOptions = {}): PushTransport {
+  const retries = opts.retries ?? 2;
+  const sleep = opts.sleep ?? defaultSleep;
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Accept-Encoding": "gzip, deflate",
+    "Content-Type": "application/json",
+  };
+  if (opts.accessToken) headers.Authorization = `Bearer ${opts.accessToken}`;
+
   return async (messages) => {
     const dead: string[] = [];
     for (const batch of chunk(messages, EXPO_BATCH_SIZE)) {
-      try {
-        const res = await fetchImpl(EXPO_PUSH_URL, {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Accept-Encoding": "gzip, deflate",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(batch),
-        });
-        const text = await res.text();
+      const body = JSON.stringify(batch);
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        if (attempt > 0) await sleep(500 * 3 ** (attempt - 1));
+        let res: Awaited<ReturnType<FetchForPush>>;
+        let text: string;
+        try {
+          res = await fetchImpl(EXPO_PUSH_URL, { method: "POST", headers, body });
+          text = await res.text();
+        } catch (err) {
+          if (attempt < retries) continue;
+          logger.warn("Expo push request error", { error: String(err) });
+          break;
+        }
         if (!res.ok) {
+          if ((res.status === 429 || res.status >= 500) && attempt < retries) continue;
           logger.warn("Expo push failed", { status: res.status, body: text });
-          continue;
+          break;
         }
         try {
-          dead.push(...deadTokensFromTickets(batch, JSON.parse(text)));
+          const parsed: unknown = JSON.parse(text);
+          dead.push(...deadTokensFromTickets(batch, parsed));
+          const errors = ticketErrorCounts(parsed);
+          if (Object.keys(errors).length > 0) logger.warn("Expo push ticket errors", { errors });
         } catch {
           /* unreadable tickets: nothing to clean up */
         }
-      } catch (err) {
-        logger.warn("Expo push request error", { error: String(err) });
+        break;
       }
     }
     return dead;

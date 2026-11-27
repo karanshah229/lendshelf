@@ -4,13 +4,11 @@ import { existsSync, readFileSync } from 'node:fs';
 
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
-const APP_ID = 'com.lendshelf.app';
-
 /**
  * Which Firebase project a build talks to (read when the app is bundled or prebuilt):
  *   dev: `lendshelf-dev` (the default); prod: `lendshelf-prod` (never implicit).
  * Config files come from firebase-config/<env>/ (git-ignored; `npm run firebase:config`
- * downloads them).
+ * downloads them), or from the paths in the env vars below (EAS file variables).
  */
 const APP_ENV = process.env.APP_ENV || 'dev';
 if (APP_ENV !== 'dev' && APP_ENV !== 'prod') {
@@ -18,29 +16,76 @@ if (APP_ENV !== 'dev' && APP_ENV !== 'prod') {
 }
 
 /**
- * EAS project id, needed for Expo push tokens (`src/lib/push.ts`). This config is dynamic, so
- * `eas init` can't write it here: set EAS_PROJECT_ID (or EAS_PROJECT_ID_DEV / _PROD), or put
- * `extra.eas.projectId` in an app.json. Without it, push registration is skipped.
+ * Android application id and iOS bundle id. `com.lendshelf.app` unless APP_ID says otherwise.
+ * The EAS dev builds (eas.json) use `com.lendshelf.app.dev`, so they install next to the
+ * store app and get their own FCM / APNs credentials on EAS; that id must be registered in
+ * lendshelf-dev first (README → Push notifications setup). Prod is always `com.lendshelf.app`.
  */
-const EAS_PROJECT_ID =
-  process.env[`EAS_PROJECT_ID_${APP_ENV.toUpperCase()}`] || process.env.EAS_PROJECT_ID || '';
+const PROD_APP_ID = 'com.lendshelf.app';
+const DEV_APP_ID = 'com.lendshelf.app.dev';
+const APP_ID = process.env.APP_ID || PROD_APP_ID;
+if (APP_ID !== PROD_APP_ID && APP_ID !== DEV_APP_ID) {
+  throw new Error(`APP_ID must be ${PROD_APP_ID} or ${DEV_APP_ID} (got "${APP_ID}")`);
+}
+if (APP_ENV === 'prod' && APP_ID !== PROD_APP_ID) {
+  throw new Error(`APP_ENV=prod builds must use ${PROD_APP_ID} (got APP_ID="${APP_ID}")`);
+}
 
-function firebaseFile(name: string): string {
-  const path = `./firebase-config/${APP_ENV}/${name}`;
-  if (!existsSync(path)) {
-    throw new Error(`Missing ${path}. Run \`npm run firebase:config\` (needs the Firebase CLI login).`);
+/**
+ * EAS project id, needed for Expo push tokens (`src/lib/push.ts`). This config is dynamic, so
+ * `eas init` can't write it here: paste it into EAS_PROJECT_ID_DEFAULT (it isn't a secret), or
+ * set EAS_PROJECT_ID (or EAS_PROJECT_ID_DEV / _PROD), or put `extra.eas.projectId` in an
+ * app.json. Without it, push registration is skipped.
+ */
+const EAS_PROJECT_ID_DEFAULT = '';
+const EAS_PROJECT_ID =
+  process.env[`EAS_PROJECT_ID_${APP_ENV.toUpperCase()}`] ||
+  process.env.EAS_PROJECT_ID ||
+  EAS_PROJECT_ID_DEFAULT;
+
+/**
+ * Env vars that may hold the path of a Firebase config file. On EAS they are "file"
+ * environment variables (the files are git-ignored, so EAS can't see firebase-config/).
+ * Locally they are normally unset.
+ */
+const FILE_ENV_VARS = {
+  'google-services.json': 'GOOGLE_SERVICES_JSON',
+  'GoogleService-Info.plist': 'GOOGLE_SERVICE_INFO_PLIST',
+  'web.json': 'FIREBASE_WEB_JSON',
+} as const;
+type FirebaseFile = keyof typeof FILE_ENV_VARS;
+
+/** The env-provided path if that file exists, else firebase-config/<env>/<name>, else null. */
+function findFirebaseFile(name: FirebaseFile): string | null {
+  const fromEnv = process.env[FILE_ENV_VARS[name]];
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+  const local = `./firebase-config/${APP_ENV}/${name}`;
+  return existsSync(local) ? local : null;
+}
+
+function firebaseFile(name: FirebaseFile): string {
+  const path = findFirebaseFile(name);
+  if (!path) {
+    throw new Error(
+      `Missing ./firebase-config/${APP_ENV}/${name}. Run \`npm run firebase:config\` (needs the ` +
+        `Firebase CLI login), or set ${FILE_ENV_VARS[name]} to the file's path (EAS file variable).`
+    );
   }
   return path;
 }
 
-/** Web SDK config of the registered web app (src/lib/firebase/config.ts reads it on web). */
-function webConfig(): Record<string, string> {
+/**
+ * Web SDK config of the registered web app (src/lib/firebase/config.ts reads it on web only).
+ * Native builds on EAS don't need it, so there it may be missing.
+ */
+function webConfig(): Record<string, string> | null {
+  if (process.env.EAS_BUILD === 'true' && !findFirebaseFile('web.json')) return null;
   return JSON.parse(readFileSync(firebaseFile('web.json'), 'utf8')) as Record<string, string>;
 }
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'LendShelf',
+  name: APP_ID === DEV_APP_ID ? 'LendShelf Dev' : 'LendShelf',
   slug: 'lendshelf',
   scheme: 'lendshelf',
   version: '0.1.0',

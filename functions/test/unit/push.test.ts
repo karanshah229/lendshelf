@@ -9,6 +9,7 @@ import {
   EXPO_PUSH_URL,
   expoTransport,
   isExpoPushToken,
+  ticketErrorCounts,
   type ExpoPushMessage,
 } from "../../src/lib/push.js";
 import { msg } from "../../src/lib/messages.js";
@@ -108,13 +109,58 @@ describe("expoTransport", () => {
     expect(JSON.parse(init.body)).toHaveLength(100);
   });
 
-  it("swallows HTTP and network errors", async () => {
+  it("swallows HTTP and network errors after retrying them", async () => {
+    const sleep = vi.fn(async (_ms: number) => undefined);
+    const one: ExpoPushMessage[] = [{ to: T1, title: "", body: "", data: {}, sound: "default" }];
     const failing = vi.fn(async () => ({ ok: false, status: 500, text: async () => "err" }));
-    await expect(expoTransport(failing)([{ to: T1, title: "", body: "", data: {}, sound: "default" }])).resolves.toEqual([]);
+    await expect(expoTransport(failing, { sleep })(one)).resolves.toEqual([]);
+    expect(failing).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([500, 1500]);
     const throwing = vi.fn(async () => {
       throw new Error("offline");
     });
-    await expect(expoTransport(throwing)([{ to: T1, title: "", body: "", data: {}, sound: "default" }])).resolves.toEqual([]);
+    await expect(expoTransport(throwing, { sleep })(one)).resolves.toEqual([]);
+    expect(throwing).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries 429 until it succeeds, but not other 4xx", async () => {
+    const sleep = async () => undefined;
+    const one: ExpoPushMessage[] = [{ to: T1, title: "", body: "", data: {}, sound: "default" }];
+    const responses = [
+      { ok: false, status: 429, text: async () => "slow down" },
+      { ok: true, status: 200, text: async () => JSON.stringify({ data: [{ status: "error", details: { error: "DeviceNotRegistered" } }] }) },
+    ];
+    const flaky = vi.fn(async () => responses.shift()!);
+    await expect(expoTransport(flaky, { sleep })(one)).resolves.toEqual([T1]);
+    expect(flaky).toHaveBeenCalledTimes(2);
+    const badRequest = vi.fn(async () => ({ ok: false, status: 400, text: async () => "bad" }));
+    await expoTransport(badRequest, { sleep })(one);
+    expect(badRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the Expo access token only when one is set", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, text: async () => "{}" }));
+    const one: ExpoPushMessage[] = [{ to: T1, title: "", body: "", data: {}, sound: "default" }];
+    await expoTransport(fetchImpl, { accessToken: "secret-token" })(one);
+    await expoTransport(fetchImpl)(one);
+    const headers = (fetchImpl.mock.calls as unknown as [string, { headers: Record<string, string> }][]).map((c) => c[1].headers);
+    expect(headers[0]?.Authorization).toBe("Bearer secret-token");
+    expect(headers[1]?.Authorization).toBeUndefined();
+  });
+
+  it("counts ticket errors other than DeviceNotRegistered", () => {
+    expect(
+      ticketErrorCounts({
+        data: [
+          { status: "ok", id: "a" },
+          { status: "error", details: { error: "InvalidCredentials" } },
+          { status: "error", details: { error: "InvalidCredentials" } },
+          { status: "error", details: { error: "DeviceNotRegistered" } },
+          { status: "error", message: "no details" },
+        ],
+      }),
+    ).toEqual({ InvalidCredentials: 2, unknown: 1 });
+    expect(ticketErrorCounts(null)).toEqual({});
   });
 });
 

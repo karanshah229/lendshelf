@@ -56,3 +56,6 @@ coverage/
 
 # Real Firebase app configs (npm run firebase:config)
 /firebase-config/
+
+# Firebase service-account keys (FCM V1 for EAS): never commit them
+*-firebase-adminsdk-*.json

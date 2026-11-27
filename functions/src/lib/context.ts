@@ -7,7 +7,7 @@ import type { Auth } from "firebase-admin/auth";
 import { FieldValue, getFirestore, initializeFirestore, Timestamp, type Firestore } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import type { FetchLike } from "./books.js";
-import { createPushSender, expoTransport, type PushSender } from "./push.js";
+import { createPushSender, EXPO_ACCESS_TOKEN_SECRET, expoTransport, type PushSender } from "./push.js";
 import { COL, type UserDoc } from "../model.js";
 
 export interface Deps {
@@ -113,7 +113,8 @@ export function defaultDeps(): Deps {
     fetch: fetchImpl as unknown as FetchLike,
     push: createPushSender({
       getTokens: firestoreTokenLookup(db),
-      transport: expoTransport(fetchImpl),
+      // Set only when the EXPO_ACCESS_TOKEN secret is bound (USE_EXPO_ACCESS_TOKEN=true).
+      transport: expoTransport(fetchImpl, { accessToken: process.env[EXPO_ACCESS_TOKEN_SECRET] || undefined }),
       emulator: isTestEmulator(),
       recorder: firestorePushRecorder(db),
       removeTokens: firestoreTokenRemover(db),

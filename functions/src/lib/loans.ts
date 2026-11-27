@@ -123,17 +123,25 @@ export function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * DAY_MS);
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Due date for a loan: the given ISO date/time, or `now + 21 days`.
  * Must not be in the past (a date-only value for today is fine) and at most a year ahead.
+ *
+ * A date-only value ("2026-12-12", sent by Accept and Change due date) means
+ * that calendar day in India, stored as noon IST like the Lend screen's due
+ * dates. Read as UTC midnight (05:30 IST), the 09:00 daily job sent "Overdue"
+ * on the due day itself and "Due soon" two days early instead of the day before.
  */
 export function resolveDueDate(iso: string | null | undefined, now: Date): Date {
   if (iso === undefined || iso === null || iso === "") return addDays(now, DEFAULT_LOAN_DAYS);
-  const d = new Date(iso);
+  const dateOnly = DATE_ONLY.test(iso);
+  const d = new Date(dateOnly ? `${iso}T12:00:00+05:30` : iso);
   if (Number.isNaN(d.getTime())) {
     throw new HttpsError("invalid-argument", `dueDate "${iso}" isn't a valid date (use ISO 8601).`);
   }
-  if (d.getTime() < now.getTime() - DAY_MS) {
+  if (dateOnly ? iso < isoDayIst(now) : d.getTime() < now.getTime() - DAY_MS) {
     throw new HttpsError("invalid-argument", "The due date can't be in the past.");
   }
   if (d.getTime() > addDays(now, 366).getTime()) {

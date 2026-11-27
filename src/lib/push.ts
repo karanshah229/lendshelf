@@ -8,7 +8,8 @@
  *   it from any other account on this device, DECISIONS #26) and removed again on sign-out with
  *   `unregisterPushToken`.
  * - Needs an EAS project id: `extra.eas.projectId`, which app.config.ts fills from
- *   EAS_PROJECT_ID(_DEV/_PROD) or a static app.json (`eas init` can't edit the dynamic config).
+ *   EAS_PROJECT_ID_DEFAULT, EAS_PROJECT_ID(_DEV/_PROD) or a static app.json (`eas init` can't
+ *   edit the dynamic config). Setup: README → Push notifications setup.
  *   Without it, registration is skipped with a warning: everything else keeps working.
  */
 import Constants from 'expo-constants';

@@ -211,6 +211,13 @@ The web build could not be used: Ravi's web sign-in got a reCAPTCHA image challe
 - Cancel staying at about 10 s looks like a cold instance.
 - Sign-in's 36–39 s passes before the Auth request leaves the app (no app log lines in between), which points at Firebase Auth's app verification (Play Integrity / reCAPTCHA), not App Check.
 
+### Sign-in speed
+- Send code is 2.2–3.5 s on the Pixel, both warm and after a cold start, measured with logcat and timed screenshots. Verify is about 1.3 s.
+- The steps are: `getRecaptchaConfig` (about 0.4 s; "No Recaptcha Enterprise siteKey" is expected and harmless), then a Play Integrity token (1.0–1.5 s), then `sendVerificationCode` (about 0.4 s). No reCAPTCHA browser opened.
+- The 36–39 s above is a measurement artefact. The code screen's 1 s resend countdown keeps the UI busy, so `uiautomator dump` fails ("could not get idle state", about 11 s per try) until the countdown ends.
+- Time screens with `screencap` or logcat, not `uiautomator dump`.
+- After 4 s, the Send code button now reads "Checking this phone…", so a slow network doesn't look broken.
+
 ### End state
 - Pixel signed in as Asha on Home.
 - Permissions: READ_CONTACTS granted (flagged user-fixed after the deny test), CAMERA granted while in use, POST_NOTIFICATIONS granted.
@@ -220,3 +227,40 @@ The web build could not be used: Ravi's web sign-in got a reCAPTCHA image challe
 - Asha: "QA Retest Pixel" (Lendable) and "QA Retest Pixel Two" (Hidden), both by Test Author.
 - Ravi: a returned Sapiens loan to Asha with the full timeline, and pickup note "QAdesk" (if the accept sheet saved it).
 - Declined and cancelled requests in both users' Recent lists.
+
+## Time-based flows on dev (2026-11-27)
+
+Tested on `lendshelf-dev` with the web build (`APP_ENV=dev`, port 8085, 375 × 812), signed in as Asha and Ravi. Two fresh loans were made through the app (Asha asked for Ravi's Sapiens and Ravi accepted; Ravi asked for Asha's QA Retest Pixel). Their `requestedAt`, `startedAt` and `dueDate` were then backdated with the Firestore REST API, and `dailyMaintenance` was run on demand through its Cloud Scheduler job. Push delivery can't be checked (no EAS project), so reminders were checked in the function logs ("Push skipped: no tokens" with the recipient and title) and in Firestore. The job has no per-day marker; which reminder goes out depends only on the time from now to `dueDate`.
+
+| Flow | Result | Notes |
+|---|---|---|
+| Request expiry after 7 days | Pass | `requestedAt` 6 days ago: borrower's Needs-you card "Your request to Asha Rao expires tomorrow"; Loan "expires tomorrow". 7 days 1 h ago: the app already shows "Your request expired · Ask again" before the job runs. Job: `expired: 1`, status `expired`, push "Request expired" to the borrower. Owner's Loan: "Request expired · You didn't answer Ravi's request in 7 days" with **Message Ravi** and no Accept. Both Recent lists show it. |
+| Due-tomorrow reminder | Pass, with bug D | Due in 30 h: `dueSoon: 1`, push "Due soon" to the borrower only. Borrower's Home and Loans: card "due tomorrow" with I've returned it / Ask for more time. The push body isn't logged; the "tomorrow" wording is covered by unit tests. |
+| Overdue, first reminder | Pass, with bug D | Due yesterday at noon IST: `overdue: 1`, "Overdue" to owner and borrower. Owner's Home: overdue card "Sapiens with Asha Rao · N days overdue" with **Nudge on WhatsApp**, Got it back and change-date icon; strip "2 out with friends, 1 overdue"; Loans tab badge. Borrower: "1 day overdue" card, oldest deadline first. |
+| Weekly overdue reminder | Pass | Due 7 days 2 h ago: `overdue: 1` to both. Due 3 days ago (control): `overdue: 0`, while the app still says "3 days overdue". |
+| Nudge on WhatsApp | Pass | `wa.me/<borrower number>` with "Hi Asha! Just a reminder that "Sapiens" was due back on 20 Nov. Could you return it when you get a chance?". The borrower's Ask for more time: "Hi Ravi! Could I keep "Sapiens" a little longer? Maybe till 4 Dec?". The browser pane blocks popups, so the URL was captured in the page and nothing was opened or sent. |
+| End of the 48 h pick-up window | Pass | `startedAt` 2 min short of 48 h: owner Loan "Waiting for Asha to pick up", Message Asha, Not collected. It switched to "With Asha · Due 18 Dec" with Got it back and Nudge Asha without a reload (about 1 min tick). Borrower at 47 h: card "Ravi said yes to Sapiens · Pick up from Ravi · pickup: QAdesk", With you "Pick up from Ravi"; at 49 h the normal due wording. |
+
+### Bug D (fixed on dev): date-only due dates are reminded a day early
+
+**Major.** Accept and Change due date send a date-only value ("2026-12-18", `src/features/loans/due-dates.ts:86-88`). `resolveDueDate` (`functions/src/lib/loans.ts:130-143` before the fix) parsed it as UTC midnight, 05:30 IST on the due day. The 09:00 IST job (`reminderKind`, `functions/src/lib/loans.ts:160-168`) then:
+- sends "Overdue" to owner and borrower on the due day itself, while the app says "due today". Reproduced: due `2026-11-27T00:00Z` → `overdue: 1`, Loans row "due today";
+- sends "Due soon" two days early ("in 2 days") and nothing the day before.
+
+The Lend screen sends local noon (`src/features/lend/due-date.ts:72-74`), so recorded loans were fine.
+
+Fix: a date-only value now means noon IST on that day, and the past-date check compares calendar days in India. Unit tests were added for the reminder days of a date-only due date; `npm --prefix functions test` passes. `respondToRequest`, `recordLoan` and `updateDueDate` were deployed to dev from a clean checkout of HEAD plus this change. Change due date on dev then stored `2026-12-25T06:30Z`.
+
+Loans saved before the fix keep their 05:30 due times. Animal Farm (due 28 Nov) will get its "Overdue" pushes at 09:00 on 28 Nov. Prod data was not checked or migrated.
+
+### Polish
+- Between day 7 and the next job run, an expired request appears twice on the borrower's Loans: as a Needs-you card "Your request to Asha Rao expired" and as a "Your requests" row reading "expired".
+- Backdating `startedAt` alone puts "Accepted" before "Asha asked" in the timeline. This is a test artefact.
+
+### Data changed in `lendshelf-dev`
+- Sapiens loan (Ravi → Asha): created, backdated, put back to its original dates, due date changed to 25 Dec in the app, then closed as Not collected. Sapiens is available again.
+- QA Retest Pixel request (Ravi → Asha): created and backdated 7 days, then expired by the job. Left as is, in both users' Recent lists.
+- The job runs also sent one "Request expired", one "Due soon" and six "Overdue" pushes, and Change due date sent "Due date changed". None were delivered: no tokens.
+
+### End state
+Web server stopped and viewport reset. Phones were not used.

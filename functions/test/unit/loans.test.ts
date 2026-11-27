@@ -101,9 +101,24 @@ describe("due dates", () => {
     expect(resolveDueDate(null, now)).toEqual(addDays(now, 21));
   });
 
-  it("accepts ISO dates, including today as a date-only value", () => {
-    expect(resolveDueDate("2026-12-12", now).toISOString()).toBe("2026-12-12T00:00:00.000Z");
-    expect(resolveDueDate("2026-11-21", now).toISOString()).toBe("2026-11-21T00:00:00.000Z");
+  it("accepts ISO dates; a date-only value (today included) is noon IST that day", () => {
+    expect(resolveDueDate("2026-12-12", now).toISOString()).toBe("2026-12-12T06:30:00.000Z");
+    expect(resolveDueDate("2026-11-21", now).toISOString()).toBe("2026-11-21T06:30:00.000Z");
+    expect(resolveDueDate("2026-12-12T12:00:00.000Z", now).toISOString()).toBe("2026-12-12T12:00:00.000Z");
+    // Yesterday's noon is under 24 h ago, but the calendar day has passed.
+    expect(() => resolveDueDate("2026-11-20", now)).toThrow(/past/);
+  });
+
+  it("a date-only due date is reminded the day before and overdue from the day after (09:00 IST runs)", () => {
+    const due = resolveDueDate("2026-11-22", now);
+    const at = (iso: string) => new Date(iso);
+    expect(reminderKind(due, at("2026-11-20T03:30:00Z"))).toBeNull();
+    expect(reminderKind(due, at("2026-11-21T03:30:00Z"))).toBe("dueSoon");
+    expect(reminderKind(due, at("2026-11-22T03:30:00Z"))).toBeNull(); // due today, not overdue
+    expect(reminderKind(due, at("2026-11-23T03:30:00Z"))).toBe("overdue");
+    expect(reminderKind(due, at("2026-11-24T03:30:00Z"))).toBeNull();
+    expect(reminderKind(due, at("2026-11-30T03:30:00Z"))).toBe("overdue");
+    expect(msg.dueSoon("Dune", "L1", due, at("2026-11-21T03:30:00Z")).body).toBe("Dune is due back tomorrow (22 Nov).");
   });
 
   it("rejects bad, past and far-future dates", () => {

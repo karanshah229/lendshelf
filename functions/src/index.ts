@@ -17,13 +17,30 @@
  * still sees every function.
  */
 import { setGlobalOptions } from "firebase-functions/v2/options";
+import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
 import type { Caller, Deps } from "./lib/context.js";
 import { REGION, TIME_ZONE, type ItemDoc } from "./model.js";
+import { EXPO_ACCESS_TOKEN_SECRET } from "./lib/push.js";
 
-setGlobalOptions({ region: REGION, maxInstances: 10 });
+/**
+ * Expo access token for pushes ("enhanced push security"), opt-in: set
+ * USE_EXPO_ACCESS_TOKEN=true in functions/.env.dev / .env.prod only after
+ * creating the secret (`firebase functions:secrets:set EXPO_ACCESS_TOKEN`).
+ * The secret is declared only then, because the deploy checks every declared
+ * secret and fails if it doesn't exist. The value reaches the code as
+ * process.env.EXPO_ACCESS_TOKEN (lib/context.ts). It is bound to every v2
+ * function, since most of them can send a push.
+ */
+const USE_EXPO_ACCESS_TOKEN = process.env.USE_EXPO_ACCESS_TOKEN === "true";
+
+setGlobalOptions({
+  region: REGION,
+  maxInstances: 10,
+  ...(USE_EXPO_ACCESS_TOKEN ? { secrets: [defineSecret(EXPO_ACCESS_TOKEN_SECRET)] } : {}),
+});
 
 /**
  * App Check on callables is opt-in: set ENFORCE_APP_CHECK=true (e.g. in
