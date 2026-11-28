@@ -117,7 +117,7 @@ function buttonLabelClass(
 }
 
 /** Width classes that mean the button's width comes from outside, not from its label. */
-const FILL_CLASS = /(^|s)(flex-1|w-full|self-stretch)(s|$)/;
+const FILL_CLASS = /(^|\s)(flex-1|w-full|self-stretch)(\s|$)/;
 
 /** True when the only child (ignoring null and false) is a `Text`. */
 function isLoneLabel(children: unknown): boolean {
@@ -167,5 +167,5 @@ function Button({ className, variant, size, fillLabel, ...props }: ButtonProps) 
   );
 }
 
-export { Button, buttonLabelClass, buttonTextVariants, buttonVariants };
+export { Button, buttonLabelClass, buttonTextVariants, buttonVariants, FILL_CLASS };
 export type { ButtonProps };

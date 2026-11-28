@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as React from 'react';
 import { View } from 'react-native';
 
-import { buttonLabelClass, buttonTextVariants } from '@/components/ui/button';
+import { buttonLabelClass, buttonTextVariants, FILL_CLASS } from '@/components/ui/button';
 import { labelPointerEvents, Text } from '@/components/ui/text';
 
 // The primitives ship untranspiled JSX; the label logic doesn't need them.
@@ -88,4 +88,29 @@ describe('lone button labels fill a stretched button', () => {
     expect(classes('default', 'default', [icon, label], true)).not.toContain('grow');
     expect(classes('default', 'default', () => label, true)).not.toContain('grow');
   });
+});
+
+// A button stretched by `flex-1`, `w-full` or `self-stretch` lets its lone label fill it. The
+// regex once read a literal `s` where whitespace was meant, so only a bare class or one at the end
+// of the string counted, and "flex-1 gap-2" kept the clipping label.
+describe('stretched-button classes', () => {
+  it.each([
+    'flex-1',
+    'w-full',
+    'self-stretch',
+    'flex-1 gap-2',
+    'w-full mt-2',
+    'mt-2 w-full gap-2',
+    'mt-2 self-stretch',
+    'mt-2\nflex-1',
+  ])('"%s" stretches the button', (className) => {
+    expect(FILL_CLASS.test(className)).toBe(true);
+  });
+
+  it.each(['', 'flex-10', 'max-w-full', 'min-w-full gap-2', 'mt-2 self-stretched', 'sm:w-full'])(
+    '"%s" does not',
+    (className) => {
+      expect(FILL_CLASS.test(className)).toBe(false);
+    }
+  );
 });
