@@ -22,6 +22,7 @@ import { searchCopies } from '@/lib/search';
 import { greeting } from '@/lib/whatsapp';
 
 import { groupItemsByShelf } from '@/features/person/group-by-shelf';
+import { PersonReading } from '@/features/reading/PersonReading';
 import { CoverGrid } from '@/features/shared/CoverCard';
 import { useBorrowedItemIds, useRequestedItemIds } from '@/features/shared/hooks';
 import { PersonAvatar, SectionHeader } from '@/features/shared/ui';
@@ -139,6 +140,8 @@ export default function PersonScreen() {
             </Button>
           ) : null}
         </Card>
+
+        {canSee && personId ? <PersonReading uid={personId} /> : null}
 
         {loading ? (
           <View className="-mx-1.5 flex-row flex-wrap">

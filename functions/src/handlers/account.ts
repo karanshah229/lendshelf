@@ -207,6 +207,7 @@ export async function deleteAccount(deps: Deps, caller: Caller): Promise<DeleteA
   const simple: [string, Query][] = [
     ["shelves", db.collection(COL.shelves).where("ownerId", "==", uid)],
     ["reviews", db.collection(COL.reviews).where("authorId", "==", uid)],
+    ["readings", db.collection(COL.readings).where("uid", "==", uid)],
     ["watches", db.collection(COL.watches).where("uid", "==", uid)],
     ["linksAsViewer", db.collection(COL.links).where("viewerId", "==", uid)],
     ["linksAsOwner", db.collection(COL.links).where("ownerId", "==", uid)],

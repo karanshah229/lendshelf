@@ -67,6 +67,8 @@ export const COL = {
   items: "items",
   loans: "loans",
   reviews: "reviews",
+  /** `readings/{workId}_{uid}` — what a user is reading and has read. */
+  readings: "readings",
   watches: "watches",
   /** `rateLimits/{uid}` — backend-only per-user quotas. */
   rateLimits: "rateLimits",
@@ -84,6 +86,8 @@ export interface UserDoc<T = Timestamp> {
 export interface ProfileDoc<T = Timestamp> {
   name: string;
   pickupNote: string | null;
+  /** false hides the user's reading from their contacts; missing means shared. */
+  shareReading?: boolean;
   createdAt: T;
   updatedAt: T;
 }

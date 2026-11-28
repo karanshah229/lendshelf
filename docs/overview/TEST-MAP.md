@@ -55,6 +55,8 @@ Run on 2026-11-27 for this document, on a clean working tree at `de15c0b`.
 | Backend rules | 2 files, 46 tests passed | 46 |
 | Backend integration | 6 files, 45 tests passed | 44 |
 
+Re-run on 2026-11-28 after the reading feature (F16): `npm test` 45 suites, 439 tests; backend unit 99, rules 53, integration 45; typecheck and lint exit 0. The per-file tables below are from 27 Nov apart from the reading rows.
+
 ## Test inventory
 
 Counts are tests per file as reported by the runners (Jest and Vitest JSON output), so `it.each` rows are counted individually.
@@ -106,6 +108,7 @@ Counts are tests per file as reported by the runners (Jest and Vitest JSON outpu
 | [status-text.test.ts](../../src/lib/__tests__/status-text.test.ts) | 3 | Status badge text | F2, F9 |
 | [whatsapp.test.ts](../../src/lib/__tests__/whatsapp.test.ts) | 9 | wa.me links, greetings | F3 to F7 |
 | [contacts.test.ts](../../src/stores/__tests__/contacts.test.ts) | 8 | Contacts onboarding flag, state merge | F1, F13 |
+| [reading.test.ts](../../src/features/reading/__tests__/reading.test.ts) | 11 | Reading now and Read list order, the 5-book cap, re-reads, Stop reading, unconfirmed server dates, labels, the share flag, what the circle is reading | F16 |
 | [session.test.ts](../../src/stores/__tests__/session.test.ts) | 8 | Session during deletion, pending deep link, guard redirect | F1, F12, F15 |
 
 ### Backend unit (Vitest), 96 tests
@@ -122,7 +125,7 @@ Counts are tests per file as reported by the runners (Jest and Vitest JSON outpu
 
 | File | Tests | Covers | Flows |
 |---|---|---|---|
-| [firestore.rules.test.ts](../../functions/test/rules/firestore.rules.test.ts) | 43 | The app's list queries; `users`, `profiles`, backend-only collections, `works`, `shelves`, `items` (validation, batch sizes, cover URLs, authors), timestamps, `rateLimits`, `reviews`, `watches` | F2, F3 to F7 (loans backend-only), F8, F9, F10, F11, F12, F13 |
+| [firestore.rules.test.ts](../../functions/test/rules/firestore.rules.test.ts) | 43 | The app's list queries; `users`, `profiles`, backend-only collections, `works`, `shelves`, `items` (validation, batch sizes, cover URLs, authors), timestamps, `rateLimits`, `reviews`, `readings` (who can see, the share switch, validation, finish and re-read), `watches` | F2, F3 to F7 (loans backend-only), F8, F9, F10, F11, F12, F13 |
 | [storage.rules.test.ts](../../functions/test/rules/storage.rules.test.ts) | 3 | `covers/{uid}`: read, owner-only upload up to 5 MB images, delete | F8 |
 
 ### Backend integration (Vitest + emulator), 45 tests

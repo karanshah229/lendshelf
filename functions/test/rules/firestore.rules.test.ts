@@ -102,6 +102,22 @@ function review(workId: string, uid: string, overrides: Record<string, unknown> 
   };
 }
 
+function reading(workId: string, uid: string, overrides: Record<string, unknown> = {}) {
+  return {
+    workId,
+    uid,
+    title: "The Hobbit",
+    authors: ["J.R.R. Tolkien"],
+    coverUrl: null,
+    status: "reading",
+    startedAt: t0,
+    finishedAt: null,
+    createdAt: t0,
+    updatedAt: t0,
+    ...overrides,
+  };
+}
+
 async function seed(): Promise<void> {
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
@@ -138,6 +154,8 @@ async function seed(): Promise<void> {
     await put(`loans/l2`, loan({ borrowerUid: null, borrowerName: "Uncle", borrowerPhone: null }));
     await put(`reviews/${WORK}_${ALICE}`, review(WORK, ALICE));
     await put(`reviews/${WORK}_${CAROL}`, review(WORK, CAROL));
+    await put(`readings/${WORK}_${ALICE}`, reading(WORK, ALICE));
+    await put(`readings/${WORK}_${CAROL}`, reading(WORK, CAROL));
     await put(`watches/${BOB}_wishlist_${WORK}`, {
       uid: BOB, type: "wishlist", targetId: WORK, workId: WORK, title: "The Hobbit", createdAt: t0,
     });
@@ -287,6 +305,13 @@ describe("profiles", () => {
     await assertFails(setDoc(doc(as(CAROL), "profiles", CAROL), { ...p, admin: true }));
     await assertSucceeds(updateDoc(doc(as(ALICE), "profiles", ALICE), { name: "Alice R", updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(as(ALICE), "profiles", ALICE), { createdAt: serverTimestamp() }));
+  });
+
+  it("shareReading is optional and must be true or false", async () => {
+    const ref = doc(as(ALICE), "profiles", ALICE);
+    await assertSucceeds(updateDoc(ref, { shareReading: false, updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(ref, { shareReading: true, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref, { shareReading: "no", updatedAt: serverTimestamp() }));
   });
 });
 
@@ -634,6 +659,76 @@ describe("reviews", () => {
     await assertFails(updateDoc(doc(as(BOB), "reviews", id), { rating: 1 }));
     await assertFails(deleteDoc(doc(as(BOB), "reviews", id)));
     await assertSucceeds(deleteDoc(doc(as(ALICE), "reviews", id)));
+  });
+});
+
+describe("readings", () => {
+  const r = (workId: string, uid: string, o: Record<string, unknown> = {}) =>
+    reading(workId, uid, { createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...o });
+  const hideAlicesReading = () =>
+    env.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), "profiles", ALICE), { shareReading: false })
+    );
+
+  it("seen by the reader and by people who have them saved, not by others", async () => {
+    const id = `${WORK}_${ALICE}`;
+    await assertSucceeds(getDoc(doc(as(ALICE), "readings", id)));
+    await assertSucceeds(getDoc(doc(as(BOB), "readings", id)));
+    await assertFails(getDoc(doc(as(CAROL), "readings", id)));
+    await assertFails(getDoc(doc(anon(), "readings", id)));
+    // A linked reader can ask about a book Alice isn't reading.
+    await assertSucceeds(getDoc(doc(as(BOB), "readings", `ol_OL1W_${ALICE}`)));
+  });
+
+  it("list queries by reader", async () => {
+    const byUid = (db: Firestore, uid: string) => getDocs(query(collection(db, "readings"), where("uid", "==", uid)));
+    await assertSucceeds(byUid(as(ALICE), ALICE));
+    await assertSucceeds(byUid(as(BOB), ALICE));
+    await assertFails(byUid(as(BOB), CAROL));
+    await assertFails(getDocs(collection(as(BOB), "readings")));
+  });
+
+  it("hidden from contacts when shareReading is false, still visible to the reader", async () => {
+    await hideAlicesReading();
+    const id = `${WORK}_${ALICE}`;
+    await assertSucceeds(getDoc(doc(as(ALICE), "readings", id)));
+    await assertFails(getDoc(doc(as(BOB), "readings", id)));
+    await assertFails(getDocs(query(collection(as(BOB), "readings"), where("uid", "==", ALICE))));
+    await assertSucceeds(getDocs(query(collection(as(ALICE), "readings"), where("uid", "==", ALICE))));
+  });
+
+  it("id must be `${workId}_${uid}`, reader must be the caller, work must exist", async () => {
+    await assertSucceeds(setDoc(doc(as(BOB), "readings", `${WORK}_${BOB}`), r(WORK, BOB)));
+    await assertFails(setDoc(doc(as(BOB), "readings", `${WORK}_${CAROL}`), r(WORK, CAROL)));
+    await assertFails(setDoc(doc(as(BOB), "readings", `${WORK}_${CAROL}`), r(WORK, BOB)));
+    await assertFails(setDoc(doc(as(BOB), "readings", "random"), r(WORK, BOB)));
+    await assertFails(setDoc(doc(as(BOB), "readings", `ol_OL1W_${BOB}`), r("ol_OL1W", BOB)));
+  });
+
+  it("valid fields only; finished needs a finish date", async () => {
+    const id = `${WORK}_${BOB}`;
+    const put = (o: Record<string, unknown>) => setDoc(doc(as(BOB), "readings", id), r(WORK, BOB, o));
+    await assertFails(put({ status: "paused" }));
+    await assertFails(put({ status: "finished", finishedAt: null }));
+    await assertFails(put({ title: "" }));
+    await assertFails(put({ coverUrl: "https://evil.example/x.jpg" }));
+    await assertFails(put({ extra: true }));
+    await assertFails(put({ createdAt: t0 }));
+    await assertSucceeds(put({ status: "finished", finishedAt: t0 }));
+  });
+
+  it("the reader can finish, re-read and delete; others can't", async () => {
+    const id = `${WORK}_${ALICE}`;
+    await assertSucceeds(
+      updateDoc(doc(as(ALICE), "readings", id), { status: "finished", finishedAt: serverTimestamp(), updatedAt: serverTimestamp() })
+    );
+    await assertSucceeds(
+      updateDoc(doc(as(ALICE), "readings", id), { status: "reading", startedAt: serverTimestamp(), updatedAt: serverTimestamp() })
+    );
+    await assertFails(updateDoc(doc(as(ALICE), "readings", id), { uid: BOB, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as(BOB), "readings", id), { status: "finished", finishedAt: t0, updatedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(as(BOB), "readings", id)));
+    await assertSucceeds(deleteDoc(doc(as(ALICE), "readings", id)));
   });
 });
 

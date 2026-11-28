@@ -130,7 +130,7 @@ function AlertDialogAction({
   variant?: AlertDialogButtonVariant;
 }) {
   return (
-    <TextClassContext.Provider value={buttonLabelClass(variant, undefined, props.children)}>
+    <TextClassContext.Provider value={buttonLabelClass(variant, undefined, props.children, true)}>
       <PressableLabel>
         <AlertDialogPrimitive.Action
           className={cn(buttonVariants({ variant }), props.disabled && 'opacity-50', className)}
@@ -149,7 +149,7 @@ function AlertDialogCancel({
   variant?: AlertDialogButtonVariant;
 }) {
   return (
-    <TextClassContext.Provider value={buttonLabelClass(variant, undefined, props.children)}>
+    <TextClassContext.Provider value={buttonLabelClass(variant, undefined, props.children, true)}>
       <PressableLabel>
         <AlertDialogPrimitive.Cancel
           className={cn(buttonVariants({ variant }), props.disabled && 'opacity-50', className)}

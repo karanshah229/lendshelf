@@ -53,7 +53,7 @@ flowchart LR
 
 | Part | What it does | Where |
 |---|---|---|
-| App | All screens; reads Firestore live; writes the user's own copies, shelves, reviews, watches and custom books | [src/](../../src) |
+| App | All screens; reads Firestore live; writes the user's own copies, shelves, reviews, reading, watches and custom books | [src/](../../src) |
 | Firebase Auth | Phone number + SMS code; the phone number is the identity | [src/lib/firebase](../../src/lib/firebase) |
 | Firestore | All data; rules decide every client read and write | [firestore.rules](../../firestore.rules) |
 | Callable functions | Loans, contact matching, book lookup, shelf visibility, push tokens, account deletion | [functions/src/handlers](../../functions/src/handlers) |
@@ -98,8 +98,8 @@ A push tap or `lendshelf://` link that arrives before the app is usable is kept 
 | Folder | Holds | Notes |
 |---|---|---|
 | `src/app/` | Routes (screens) | Thin; logic lives in features |
-| `src/features/<area>/` | Feature logic and feature components: add, book, contacts, copy, discover, export, first-run, home, invite, lend, library, loans, me, person, push-ask, reviews, shared, shelves, wishlist | Logic files are pure functions with unit tests in `__tests__` (see [TEST-MAP.md](TEST-MAP.md)) |
-| `src/hooks/` | Firestore listeners (`use-items`, `use-loans`, `use-links`, `use-reviews`, `use-shelves`, `use-watches`, `use-work`), auth, theme, notification routing | Every list query uses equality filters only; sorting happens on the device |
+| `src/features/<area>/` | Feature logic and feature components: add, book, contacts, copy, discover, export, first-run, home, invite, lend, library, loans, me, person, push-ask, reading, reviews, shared, shelves, wishlist | Logic files are pure functions with unit tests in `__tests__` (see [TEST-MAP.md](TEST-MAP.md)) |
+| `src/hooks/` | Firestore listeners (`use-items`, `use-loans`, `use-links`, `use-readings`, `use-reviews`, `use-shelves`, `use-watches`, `use-work`), auth, theme, notification routing | Every list query uses equality filters only; sorting happens on the device |
 | `src/stores/` | zustand stores | See 2.3 |
 | `src/lib/` | Firebase wrapper, callable wrappers (`api.ts`), phone, dates, search, WhatsApp text, push, errors, export | |
 | `src/components/` | Shared UI; `ui/` holds React Native Reusables (shadcn-style) components | |
@@ -157,7 +157,7 @@ erDiagram
 | Collection (id) | Key fields | Read | Write |
 |---|---|---|---|
 | `users/{uid}` | `phone`, `pushTokens[]` (max 20), `createdAt` | Owner only | Created by `onUserCreated` (client create allowed only with its own token phone); client may change only `pushTokens`; tokens actually go through `registerPushToken` |
-| `profiles/{uid}` | `name` (1-60), `pickupNote` (≤200) | Any signed-in user, **by id only**; listing denied | Owner, validated; the app writes through `completeProfile` |
+| `profiles/{uid}` | `name` (1-60), `pickupNote` (≤200), optional `shareReading` (missing = true) | Any signed-in user, **by id only**; listing denied | Owner, validated; the app writes through `completeProfile` |
 | `phoneIndex/{e164}` | `uid` | Nobody (backend only) | Backend only |
 | `links/{viewerId}_{ownerId}` | `viewerId`, `ownerId`, `ownerPhone` | The viewer only | Backend only (`syncContacts`, `deleteAccount`) |
 | `works/{workId}` (`ol_…`, `gb_…`, `custom_…`) | `source`, `title`, `authors`, `description`, `coverUrl`, `isCustom`, `createdBy` | Catalogue works: any signed-in user. Custom works: creator, or linked to creator | Catalogue: backend only (`resolveBook`). Custom: creator, id must start `custom_` |
@@ -166,6 +166,7 @@ erDiagram
 | `items/{itemId}` | `ownerId`, `workId`, `shelfId`, `visibility`, `sharedWithContacts`, `title`, `authors`, `coverUrl`, `isbn`, `format`, `language`, `loanState`, `dueDate`, `activeLoanId` | Owner, or linked when `sharedWithContacts` | Owner, validated; `loanState`, `dueDate`, `activeLoanId` backend only; can't delete while lent |
 | `loans/{loanId}` | `itemId`, `workId`, owner and borrower names and phones, `borrowerUid`, `status`, `dueDate`, `requestedAt`, `startedAt`, `returnMarkedAt`, `returnedAt`, `declineReason`, `closedReason`, `notBackYetAt`, `returnEvents[]`, `dueChangedAt`, `firstDueDate`, `borrowerLeftAt` | Owner and borrower | Backend only |
 | `reviews/{workId}_{uid}` | `rating` 1-5, `text` ≤2000, `authorName` | Author, or anyone linked to the author (decided from the id, so a missing review reads as "doesn't exist") | Author; the work must exist |
+| `readings/{workId}_{uid}` | `status` `reading` or `finished`, `startedAt`, `finishedAt`, `title`, `authors`, `coverUrl` | The reader, or anyone linked to the reader while the reader's profile doesn't say `shareReading: false` (one profile read per check) | The reader; the work must exist; `finished` needs `finishedAt` |
 | `watches/{uid}_{type}_{targetId}` | `type` `wishlist` (target = workId) or `back` (target = itemId), `workId`, `title` | Owner only | Owner; the backend also creates `back` watches |
 | `rateLimits/{uid}` | Recent `syncContacts` call times | Nobody | Backend only |
 | `_testPushes` | Pushes recorded in the test emulator | Nobody | Test emulator only |
@@ -184,6 +185,7 @@ Firestore only allows a list query that the rules can prove from its own filters
 | `loans where ownerId == me`, `loans where borrowerUid == me` | Loans, Needs you, badge | [use-loans.ts](../../src/hooks/use-loans.ts) |
 | `links where viewerId == me` | The circle (one app-wide listener) | [session-bootstrap.tsx](../../src/components/session-bootstrap.tsx#L46) |
 | `watches where uid == me` | Wishlist, notify-when-back | `use-watches` |
+| `readings where uid == X`, for me and one per linked owner (refused for owners who hide their reading) | Reading screen, Me row, Book page, Person page, Home "Your circle is reading" | [use-readings.ts](../../src/hooks/use-readings.ts) |
 | `reviews/{workId}_{uid}` by id, for me and each linked owner | Reviews | [use-reviews.ts](../../src/hooks/use-reviews.ts#L20) |
 
 Composite indexes in [firestore.indexes.json](../../firestore.indexes.json):
@@ -400,7 +402,7 @@ sequenceDiagram
 | Who | Can read |
 |---|---|
 | Any signed-in user | My profile (name, pickup note) by uid; catalogue works; cover photos in Storage |
-| People who have my number saved | My public collections, my copies with `sharedWithContacts` (title, cover, edition fields, `loanState`, `dueDate`), my custom books, my reviews |
+| People who have my number saved | My public collections, my copies with `sharedWithContacts` (title, cover, edition fields, `loanState`, `dueDate`), my custom books, my reviews, my reading (unless I turn it off) |
 | The other party on a loan | That loan: both names, both phone numbers, status, dates, note |
 | Only me | `users/{me}` (phone, push tokens), my links, my watches (wishlist is private) |
 | Nobody (backend only) | `phoneIndex`, `isbnIndex`, `rateLimits` |

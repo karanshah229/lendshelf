@@ -21,6 +21,7 @@ import { circleCopiesForBook } from '@/features/book/circle-copies';
 import { CircleCopiesList, NoCopiesCard } from '@/features/book/CircleCopiesList';
 import { cleanDescription } from '@/features/book/description';
 import { AskDialog, type AskTarget } from '@/features/copy/AskDialog';
+import { ReadingPanel } from '@/features/reading/ReadingPanel';
 import { ReviewList, useRefreshReviewsOnFocus } from '@/features/reviews/ReviewList';
 import { Stars } from '@/features/reviews/Stars';
 import {
@@ -220,6 +221,8 @@ export default function BookScreen() {
               ) : null}
             </View>
           ) : null}
+
+          <ReadingPanel uid={uid} workId={work.id} work={work} nameOf={nameOf} />
 
           {description ? (
             <View>

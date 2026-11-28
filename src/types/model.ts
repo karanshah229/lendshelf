@@ -27,6 +27,8 @@ export interface UserDoc {
 export interface Profile {
   name: string;
   pickupNote: string | null;
+  /** false hides my reading from my contacts; missing (older profiles) means shared. */
+  shareReading?: boolean;
   createdAt: TimestampLike;
   updatedAt: TimestampLike;
 }
@@ -186,6 +188,28 @@ export interface Review {
   updatedAt: TimestampLike;
 }
 
+// ---------- readings/{workId}_{uid} ----------
+/** 'reading' now, or 'finished' (in the Read list). */
+export type ReadingStatus = 'reading' | 'finished';
+
+export interface Reading {
+  workId: string;
+  uid: string;
+  title: string;
+  authors: string[];
+  coverUrl: string | null;
+  status: ReadingStatus;
+  /**
+   * When the current (or last) read started. Null for a moment on this device after a write
+   * (serverTimestamp() not confirmed yet), as is finishedAt right after "Finished it".
+   */
+  startedAt: TimestampLike | null;
+  /** When it was last finished; kept while re-reading. */
+  finishedAt: TimestampLike | null;
+  createdAt: TimestampLike;
+  updatedAt: TimestampLike;
+}
+
 // ---------- watches/{uid}_{type}_{targetId} ----------
 export type WatchType = 'wishlist' | 'back';
 
@@ -210,11 +234,13 @@ export const COLLECTIONS = {
   items: 'items',
   loans: 'loans',
   reviews: 'reviews',
+  readings: 'readings',
   watches: 'watches',
 } as const;
 
 export const linkId = (viewerId: string, ownerId: string) => `${viewerId}_${ownerId}`;
 export const reviewId = (workId: string, uid: string) => `${workId}_${uid}`;
+export const readingId = (workId: string, uid: string) => `${workId}_${uid}`;
 export const watchId = (uid: string, type: WatchType, targetId: string) =>
   `${uid}_${type}_${targetId}`;
 
@@ -223,6 +249,8 @@ export const DEFAULT_SHELF_NAME = 'My books';
 export const defaultShelfId = (uid: string) => `default_${uid}`;
 export const DEFAULT_LOAN_DAYS = 21;
 export const REQUEST_EXPIRY_DAYS = 7;
+/** How many books someone can be reading at once (checked on device). */
+export const MAX_READING = 5;
 
 export const LIMITS = {
   profileName: 60,

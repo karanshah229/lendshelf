@@ -27,6 +27,7 @@ People in the examples are labelled by role (Owner, Borrower, Watcher) rather th
 | 17 | [Naming](#17-naming) | [use-links.ts](../../src/hooks/use-links.ts), [people.ts](../../src/features/shared/people.ts) |
 | 18 | [Account deletion](#18-account-deletion) | [account.ts](../../functions/src/handlers/account.ts#L140) |
 | 19 | [Smaller rules](#19-smaller-rules) | various |
+| 20 | [Reading and the Read list](#20-reading-and-the-read-list) | [reading.ts](../../src/features/reading/reading.ts), [firestore.rules](../../firestore.rules) |
 
 ---
 
@@ -416,7 +417,7 @@ flowchart TD
     A["Pre-check sheet<br/>books out with friends · lent to non-app people · books I borrowed · open requests"] --> B["Type DELETE"]
     B --> C["deleteAccount"]
     C --> D["Close or delete loans (see rule 13)"]
-    D --> E["Delete items, others' back-watches on them, shelves, reviews,<br/>watches, links (both directions), custom works,<br/>phoneIndex entry, profile, rateLimits, users doc"]
+    D --> E["Delete items, others' back-watches on them, shelves, reviews, readings,<br/>watches, links (both directions), custom works,<br/>phoneIndex entry, profile, rateLimits, users doc"]
     E --> F{"Every write landed?"}
     F -- "no" --> G["Stop; keep Auth user;<br/>'please try again' (every step is repeatable)"]
     F -- "yes" --> H["Delete covers/uid/ in Storage, then the Auth user"]
@@ -444,3 +445,16 @@ Code: [account.ts:140](../../functions/src/handlers/account.ts#L140), [delete-pr
 | Borrower can always open their copy | If the copy can't be read any more, the copy page is built from the open loan | [copy page:82](<../../src/app/(app)/copy/[itemId].tsx#L82>) |
 | Invite link | `EXPO_PUBLIC_INVITE_URL`; unset, the text says "Ask me for the app link" | [invite-text.ts:12](../../src/features/invite/invite-text.ts#L12) |
 | Status of a copy | Lent beats requested beats hidden beats not lending beats available | [model.ts:342](../../src/types/model.ts#L342) |
+
+---
+
+## 20. Reading and the Read list
+
+**Rule.** One record per person per Book, `readings/{workId}_{uid}`, with `status` `reading` or `finished`. Anyone can mark any Book that exists in `works` (including catalogue books nobody owns), up to 5 at once (checked on the device; rules can't count).
+
+- **Finished it** sets `finished` and `finishedAt`, then opens the review screen.
+- **Read it again** sets `reading` and a new `startedAt` but keeps `finishedAt`, so the book stays in the Read list; finishing again moves the date.
+- **Stop reading** puts a book read before back to `finished`; a book never finished is deleted ([reading.ts](../../src/features/reading/reading.ts)).
+- Who sees it: the reader, and people who have the reader saved, unless the reader's profile has `shareReading: false`. The rules read that flag on every check (`sharesReading` in [firestore.rules](../../firestore.rules)), so turning it off hides everything at once with nothing to rewrite. A friend's list query is then refused; the app treats that as "nothing to show".
+
+**Example.** Asha marks *Dune* on 3 Nov and finishes it on 20 Nov: Ravi (who has Asha saved) sees it under Asha's **Read** with "Finished 20 Nov". Asha starts it again on 25 Nov: it shows in her **Reading now** and stays in **Read**. If she taps **Stop reading**, it goes back to **Read** only. If she turns off **Show my reading to contacts**, Ravi sees neither list.

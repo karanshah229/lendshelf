@@ -98,19 +98,26 @@ const buttonTextVariants = cva(
 );
 
 /**
- * Label classes for a pressable. A label that is the pressable's only content also grows to fill
- * it: on Android a centred label can be laid out a fraction of a pixel narrower than it measured,
- * so its last word wraps onto a second line that has no room and vanishes ("Yes, it’s" for
- * "Yes, it’s back"). Filling the width leaves room to spare; `text-center` keeps it centred.
- * Labels next to an icon keep their own width so the icon stays beside the text.
+ * Label classes for a pressable. In a button whose width is set from outside (`fill`: full
+ * width or `flex-1`), a label that is its only content also grows to fill it: on Android a
+ * centred label can be laid out a fraction of a pixel narrower than it measured, so its last word
+ * wraps onto a second line that has no room and vanishes ("Yes, it’s" for "Yes, it’s back").
+ * Filling the width leaves room to spare; `text-center` keeps it centred.
+ * Never in a button sized by its label: a growing label makes such a button take all the space
+ * it is offered ("Ask" next to a book row covered the row). Labels next to an icon keep their
+ * own width so the icon stays beside the text.
  */
 function buttonLabelClass(
   variant: VariantProps<typeof buttonTextVariants>['variant'],
   size: VariantProps<typeof buttonTextVariants>['size'],
-  children: unknown
+  children: unknown,
+  fill = false
 ): string {
-  return cn(buttonTextVariants({ variant, size }), isLoneLabel(children) && 'grow');
+  return cn(buttonTextVariants({ variant, size }), fill && isLoneLabel(children) && 'grow');
 }
+
+/** Width classes that mean the button's width comes from outside, not from its label. */
+const FILL_CLASS = /(^|s)(flex-1|w-full|self-stretch)(s|$)/;
 
 /** True when the only child (ignoring null and false) is a `Text`. */
 function isLoneLabel(children: unknown): boolean {
@@ -121,7 +128,13 @@ function isLoneLabel(children: unknown): boolean {
 
 type ButtonProps = React.ComponentProps<typeof Pressable> &
   React.RefAttributes<typeof Pressable> &
-  VariantProps<typeof buttonVariants>;
+  VariantProps<typeof buttonVariants> & {
+    /**
+     * The button is stretched by its parent (e.g. full width in a column), so a lone label may
+     * fill it (see `buttonLabelClass`). Implied by `flex-1`, `w-full` or `self-stretch`.
+     */
+    fillLabel?: boolean;
+  };
 
 /**
  * Extra hit area so every button reaches a 48 dp touch target (UX §F8) while keeping its visual
@@ -134,9 +147,10 @@ const HIT_SLOP: Record<NonNullable<ButtonProps['size']>, Insets> = {
   icon: { top: 4, bottom: 4, left: 4, right: 4 },
 };
 
-function Button({ className, variant, size, ...props }: ButtonProps) {
+function Button({ className, variant, size, fillLabel, ...props }: ButtonProps) {
+  const fill = fillLabel ?? FILL_CLASS.test(className ?? '');
   return (
-    <TextClassContext.Provider value={buttonLabelClass(variant, size, props.children)}>
+    <TextClassContext.Provider value={buttonLabelClass(variant, size, props.children, fill)}>
       <PressableLabel>
         <Pressable
           className={cn(

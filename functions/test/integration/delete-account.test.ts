@@ -54,6 +54,10 @@ describe("deleteAccount", () => {
     await db.collection(COL.reviews).doc(reviewId(WORK.id, zoya.uid)).set({
       workId: WORK.id, authorId: zoya.uid, authorName: "Zoya Khan", rating: 5, text: "Classic", createdAt: now, updatedAt: now,
     } satisfies ReviewDoc);
+    await db.collection(COL.readings).doc(`${WORK.id}_${zoya.uid}`).set({
+      workId: WORK.id, uid: zoya.uid, title: "The Hobbit", authors: [], coverUrl: null, status: "reading",
+      startedAt: now, finishedAt: null, createdAt: now, updatedAt: now,
+    });
     await db.collection(COL.watches).doc(watchId(zoya.uid, "wishlist", WORK.id)).set({
       uid: zoya.uid, type: "wishlist", targetId: WORK.id, workId: WORK.id, title: "The Hobbit", createdAt: now,
     } satisfies WatchDoc);
@@ -91,6 +95,7 @@ describe("deleteAccount", () => {
     expect(await count(COL.items, "ownerId")).toBe(0);
     expect(await count(COL.shelves, "ownerId")).toBe(0);
     expect(await count(COL.reviews, "authorId")).toBe(0);
+    expect(await count(COL.readings, "uid")).toBe(0);
     expect(await count(COL.watches, "uid")).toBe(0);
     expect(await count(COL.links, "viewerId")).toBe(0);
     expect(await count(COL.links, "ownerId")).toBe(0);

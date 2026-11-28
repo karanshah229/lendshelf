@@ -16,7 +16,7 @@ import { Card } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 
-const UPDATED = '21 November 2026';
+const UPDATED = '28 November 2026';
 
 function Section({
   icon,
@@ -100,14 +100,19 @@ export default function PrivacyScreen() {
         <Bullet>
           Reviews and star ratings, visible to you and people who have your number saved.
         </Bullet>
+        <Bullet>
+          The books you’re reading and have read, with the dates you started and finished. People
+          who have your number saved can see them unless you turn that off in Me → Reading.
+        </Bullet>
         <Bullet>Your wishlist and “tell me when it’s back” alerts, visible only to you.</Bullet>
         <Bullet>A device token for push notifications, if you allow them.</Bullet>
       </Section>
 
       <Section icon={Eye} title="Who can see what">
         <P>
-          People who have your number saved see the books on your public collections, your name and
-          pickup note. Private collections and hidden books are visible only to you.
+          People who have your number saved see the books on your public collections, your name,
+          pickup note and, unless you turn it off, your reading. Private collections and hidden
+          books are visible only to you.
         </P>
       </Section>
 

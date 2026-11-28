@@ -64,18 +64,28 @@ describe('button labels pass touches through (QA-ANDROID bug 2)', () => {
 });
 
 // QA (user guide run): "Yes, it’s back" showed as "Yes, it’s" and "Add to Main shelf" as
-// "Add to Main" on Android. A label that is the button's only content fills the button.
-describe('lone button labels fill the button', () => {
+// "Add to Main" on Android. A label that is a stretched button's only content fills the button.
+// Re-test (reading feature): growing the label of a button sized by its label made "Ask" next to
+// a wishlist book row take the whole row, so only stretched buttons grow their label.
+const classes = (...args: Parameters<typeof buttonLabelClass>) =>
+  buttonLabelClass(...args).split(/\s+/);
+
+describe('lone button labels fill a stretched button', () => {
   const label = React.createElement(Text, null, 'Yes, it’s back');
   const icon = React.createElement(View);
 
-  it('grows a label that is the only child, ignoring null and false', () => {
-    expect(buttonLabelClass('default', 'default', label).split(/\s+/)).toContain('grow');
-    expect(buttonLabelClass('default', 'lg', [null, label, false]).split(/\s+/)).toContain('grow');
+  it('grows a label that is the only child of a stretched button, ignoring null and false', () => {
+    expect(classes('default', 'default', label, true)).toContain('grow');
+    expect(classes('default', 'lg', [null, label, false], true)).toContain('grow');
+  });
+
+  it('never grows the label of a button sized by its label', () => {
+    expect(classes('default', 'sm', label)).not.toContain('grow');
+    expect(classes('secondary', 'sm', label, false)).not.toContain('grow');
   });
 
   it('leaves a label next to an icon at its own width', () => {
-    expect(buttonLabelClass('default', 'default', [icon, label]).split(/\s+/)).not.toContain('grow');
-    expect(buttonLabelClass('default', 'default', () => label).split(/\s+/)).not.toContain('grow');
+    expect(classes('default', 'default', [icon, label], true)).not.toContain('grow');
+    expect(classes('default', 'default', () => label, true)).not.toContain('grow');
   });
 });

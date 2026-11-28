@@ -9,6 +9,7 @@ import {
   type Item,
   type Loan,
   type Profile,
+  type Reading,
   type Review,
   type Shelf,
   type Work,
@@ -21,12 +22,13 @@ async function list<T>(name: string, field: string, uid: string): Promise<WithId
 }
 
 export async function fetchExportData(uid: string, profile: Profile | null): Promise<ExportData> {
-  const [items, shelves, loansAsOwner, loansAsBorrower, reviews] = await Promise.all([
+  const [items, shelves, loansAsOwner, loansAsBorrower, reviews, readings] = await Promise.all([
     list<Item>(COLLECTIONS.items, 'ownerId', uid),
     list<Shelf>(COLLECTIONS.shelves, 'ownerId', uid),
     list<Loan>(COLLECTIONS.loans, 'ownerId', uid),
     list<Loan>(COLLECTIONS.loans, 'borrowerUid', uid),
     list<Review>(COLLECTIONS.reviews, 'authorId', uid),
+    list<Reading>(COLLECTIONS.readings, 'uid', uid),
   ]);
 
   // Books of my copies; a missing or unreadable Book is simply left out.
@@ -40,5 +42,15 @@ export async function fetchExportData(uid: string, profile: Profile | null): Pro
     if (work) works.push(work);
   }
 
-  return { uid, profile, items, shelves, works, loansAsOwner, loansAsBorrower, reviews };
+  return {
+    uid,
+    profile,
+    items,
+    shelves,
+    works,
+    loansAsOwner,
+    loansAsBorrower,
+    reviews,
+    readings,
+  };
 }

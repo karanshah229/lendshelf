@@ -30,7 +30,8 @@ const OPTIONS: { format: ExportFormat; icon: LucideIcon; title: string; descript
     format: 'json',
     icon: Braces,
     title: 'Full backup (JSON)',
-    description: 'Books, collections, loan history as lender and borrower, and your reviews.',
+    description:
+      'Books, collections, loan history as lender and borrower, your reviews and your reading.',
   },
 ];
 

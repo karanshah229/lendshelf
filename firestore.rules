@@ -14,6 +14,7 @@ rules_version = '2';
 //   watches where uid == me
 //   reviews where authorId == me (or a linked author); reviews are normally
 //           read by id: reviews/{workId}_{uid}
+//   readings where uid == X (X is me, or linked and sharing their reading)
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -103,8 +104,11 @@ service cloud.firestore {
 
     // ---- profiles (public to signed-in users) --------------------------------
 
+    // shareReading is optional (older profiles don't have it; missing means shared).
     function validProfile(d) {
-      return exactKeys(d, ['name', 'pickupNote', 'createdAt', 'updatedAt'])
+      return d.keys().hasAll(['name', 'pickupNote', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['name', 'pickupNote', 'createdAt', 'updatedAt', 'shareReading'])
+        && (!('shareReading' in d) || d.shareReading is bool)
         && isNonEmptyString(d.name, 60)
         && isNullOrString(d.pickupNote, 200)
         && d.createdAt is timestamp
@@ -340,6 +344,51 @@ service cloud.firestore {
       allow create: if signedIn() && validWatch(request.resource.data, watchId)
         && request.resource.data.createdAt == request.time;
       allow update: if signedIn() && resource.data.uid == me() && validWatch(request.resource.data, watchId);
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // ---- readings/{workId}_{uid} ---------------------------------------------------
+
+    // What a person is reading and has read. Shown to people who have their
+    // number saved unless their profile says shareReading == false.
+    function sharesReading(uid) {
+      let profile = get(docPath('profiles', uid));
+      return profile != null && profile.data.get('shareReading', true) != false;
+    }
+
+    function canSeeReading(uid) {
+      return uid == me() || (linked(uid) && sharesReading(uid));
+    }
+
+    // 'reading' keeps finishedAt from an earlier read (re-reading); 'finished' needs it.
+    function validReading(d, id) {
+      return exactKeys(d, ['workId', 'uid', 'title', 'authors', 'coverUrl', 'status',
+                           'startedAt', 'finishedAt', 'createdAt', 'updatedAt'])
+        && d.uid == me()
+        && d.workId is string
+        && id == d.workId + '_' + me()
+        && isNonEmptyString(d.title, 300)
+        && validAuthors(d.authors)
+        && validCoverUrl(d.coverUrl)
+        && d.status in ['reading', 'finished']
+        && d.startedAt is timestamp
+        && (d.finishedAt == null || d.finishedAt is timestamp)
+        && (d.status != 'finished' || d.finishedAt is timestamp)
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    match /readings/{readingId} {
+      // By id: decided from the id alone (uid is the last segment, as reviews).
+      allow get: if signedIn() && canSeeReading(reviewAuthor(readingId));
+      allow list: if signedIn() && canSeeReading(resource.data.uid);
+      allow create: if signedIn() && validReading(request.resource.data, readingId)
+        && stampedOnCreate(request.resource.data)
+        && exists(docPath('works', request.resource.data.workId));
+      allow update: if signedIn() && resource.data.uid == me()
+        && validReading(request.resource.data, readingId)
+        && unchanged(['workId', 'uid', 'createdAt'])
+        && stampedOnUpdate(request.resource.data);
       allow delete: if signedIn() && resource.data.uid == me();
     }
 

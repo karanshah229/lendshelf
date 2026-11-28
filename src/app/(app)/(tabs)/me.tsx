@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { router, type Href } from 'expo-router';
 import {
+  BookOpen,
   Download,
   FolderCog,
   Heart,
@@ -52,9 +53,11 @@ import { DeleteAccountButton } from '@/features/me/delete-account-dialog';
 import { EditProfileDialog } from '@/features/me/edit-profile-dialog';
 import { NotificationsSection } from '@/features/me/notifications-section';
 import { Row, SectionLabel } from '@/features/me/rows';
+import { readingSummary, splitReadings } from '@/features/reading/reading';
 import { initials } from '@/features/shared/people';
 import { useAuth, useMyProfile } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useMyReadings } from '@/hooks/use-readings';
 import { HAS_ADDRESS_BOOK } from '@/lib/contacts';
 import { timeAgo } from '@/lib/dates';
 import { formatPhone } from '@/lib/phone';
@@ -75,6 +78,11 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }
 export default function MeScreen() {
   const { user } = useAuth();
   const { profile } = useMyProfile();
+  const { readings, loading: readingsLoading } = useMyReadings();
+  const split = splitReadings(readings);
+  const readingDetail = readingsLoading
+    ? 'Books you’re reading and have read'
+    : readingSummary(split.now.length, split.read.length);
   const { preference, setPreference } = useColorScheme();
   const syncing = useContactsStore((s) => s.syncing);
   const linkCount = useContactsStore((s) => s.linkCount);
@@ -229,6 +237,8 @@ export default function MeScreen() {
       {/* Library */}
       <SectionLabel>Library</SectionLabel>
       <Card className="gap-0 py-0">
+        <Row icon={BookOpen} label="Reading" detail={readingDetail} href="/reading" />
+        <Separator />
         <Row
           icon={Heart}
           label="Wishlist"

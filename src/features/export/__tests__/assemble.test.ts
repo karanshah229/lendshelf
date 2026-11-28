@@ -111,6 +111,21 @@ const data: ExportData = {
   loansAsOwner: [loan('a', 'me', 'ravi'), loan('shared', 'me', 'ravi')],
   loansAsBorrower: [loan('b', 'asha', 'me'), loan('shared', 'me', 'ravi')],
   reviews: [review],
+  readings: [
+    {
+      id: 'ol_1_me',
+      workId: 'ol_1',
+      uid: 'me',
+      title: 'Dune',
+      authors: [],
+      coverUrl: null,
+      status: 'finished',
+      startedAt: T,
+      finishedAt: T,
+      createdAt: T,
+      updatedAt: T,
+    },
+  ],
 };
 
 describe('helpers', () => {
@@ -158,6 +173,13 @@ describe('assembleExport', () => {
     expect(parsed.loans.lent.map((l: { id: string }) => l.id).sort()).toEqual(['a', 'shared']);
     expect(parsed.loans.borrowed.map((l: { id: string }) => l.id)).toEqual(['b']);
     expect(parsed.reviews).toHaveLength(1);
+    expect(parsed.reading).toEqual([
+      expect.objectContaining({
+        title: 'Dune',
+        status: 'finished',
+        finishedAt: '2026-11-01T10:00:00.000Z',
+      }),
+    ]);
     expect(parsed.works[0].createdAt).toBe('2026-11-01T10:00:00.000Z');
   });
 
@@ -170,6 +192,7 @@ describe('assembleExport', () => {
         'exportedAt',
         'loans',
         'profile',
+        'reading',
         'reviews',
         'shelves',
         'version',

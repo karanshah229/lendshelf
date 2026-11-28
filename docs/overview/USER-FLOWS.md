@@ -25,6 +25,7 @@ Related documents in this folder: [ARCHITECTURE.md](ARCHITECTURE.md) (how the pa
 | [F13](#f13-profile-contacts-and-pickup-note) | Profile, contacts and pickup note | Everyone |
 | [F14](#f14-export) | Export | Everyone |
 | [F15](#f15-sign-out-and-delete-account) | Sign out and delete account | Everyone |
+| [F16](#f16-currently-reading-and-read-list) | Currently reading and Read list | Anyone |
 
 ## Site map
 
@@ -234,7 +235,7 @@ flowchart TD
 | 1 | Home, not searching | Sections, each hidden when empty: **Your circle** (avatars with book counts, a "+ Invite" avatar, a "New on LendShelf: `<names>`" chip after a sync finds someone new); **From your wishlist** (available wishlist books with **Ask**); **New this week** (one card per person, "`<name>` added n books", tap to expand; last 7 days); **Available to borrow** ("Ready now from your circle", **Ask** on each card; excludes books in New, books I asked for, books I borrow and books I own); **Popular in your circle** (network copies only, books I own excluded, hidden below 3 entries). |
 | 2 | Home, searching | Matches my circle's copies (and mine) by title or author on the device. Rows are grouped by book, and copies filed under different catalogue records with the same title and first author show as one row with an "n editions" badge. Each row shows an availability line ("Available from `<names>`", "With you · borrowed from `<name>`", "No one in your circle has it yet") or a "You own it" badge. |
 | 3 | Home, no circle match | Card "No one in your circle has it", then **From the catalogue** (Open Library) once 2 or more characters are typed. Each result has a heart to add to the wishlist. With circle matches, a **Search the catalogue for "`<q>`"** button shows the catalogue too. |
-| 4 | Book page | Compact header (cover, title, authors, "First published", average rating from reviews you can see). **Who has it** comes first: your copy first, then contacts' copies ranked by availability, "n of m available to borrow", **Ask** on available rows, and "Other edition" on copies filed under another catalogue record. Then **Wishlist** / **On wishlist** (hidden when you own a copy) and **I own this** / **Add another copy**, **About** (description, **Read more**) and **Reviews**. |
+| 4 | Book page | Compact header (cover, title, authors, "First published", average rating from reviews you can see). **Who has it** comes first: your copy first, then contacts' copies ranked by availability, "n of m available to borrow", **Ask** on available rows, and "Other edition" on copies filed under another catalogue record. Then **Wishlist** / **On wishlist** (hidden when you own a copy) and **I own this** / **Add another copy**, the reading panel (see F16), **About** (description, **Read more**) and **Reviews**. |
 | 5 | Person page | Title is their name. "Pickup: …", counts, **Message on WhatsApp** (greets them by their profile first name), a search box when they share more than 8 books, filter **All** / **Available to borrow**, copies grouped by collection. |
 | 6 | Copy page (viewer) | Status card: "Available to borrow" (**Ask to borrow**), "Lent" (**Notify me when it's back**), "Not lending" ("`<name>` has it but isn't lending it right now"), "Request sent" (**Message `<name>` again**, **Open request**, **Cancel request**), or "With you" (**Open loan**). Owner row with "Pickup: …"; Edition card (format, language and ISBN); Reviews. |
 
@@ -943,7 +944,7 @@ sequenceDiagram
 flowchart LR
     ME["Me: Export"] --> DLG["Export dialog"]
     DLG --> CSV["Spreadsheet (CSV): one row per book"]
-    DLG --> JSON["Full backup (JSON): books, collections,<br/>loans as lender and borrower, reviews"]
+    DLG --> JSON["Full backup (JSON): books, collections,<br/>loans as lender and borrower, reviews, reading"]
     CSV --> FETCH["Read my data from Firestore on the device"]
     JSON --> FETCH
     FETCH --> SHARE{Platform}
@@ -951,7 +952,7 @@ flowchart LR
     SHARE -- web --> DL["Download, toast Downloaded file name"]
 ```
 
-**Steps.** The dialog says "The file is created on your phone and opens the share sheet. Nothing is uploaded." (web: "…created on this device and downloaded."). Options: **Spreadsheet (CSV)** "One row per book: title, authors, ISBN, collection, status. Opens in Excel or Sheets." and **Full backup (JSON)** "Books, collections, loan history as lender and borrower, and your reviews." Success toast "Export ready" with a summary; failure "Couldn't create the export. Please try again."
+**Steps.** The dialog says "The file is created on your phone and opens the share sheet. Nothing is uploaded." (web: "…created on this device and downloaded."). Options: **Spreadsheet (CSV)** "One row per book: title, authors, ISBN, collection, status. Opens in Excel or Sheets." and **Full backup (JSON)** "Books, collections, loan history as lender and borrower, your reviews and your reading." Success toast "Export ready" with a summary; failure "Couldn't create the export. Please try again."
 
 **What the other person sees.** Nothing.
 
@@ -981,7 +982,7 @@ sequenceDiagram
     CF->>FS: loans to people not on the app: deleted
     CF->>FS: loans I borrowed: borrowerUid removed, borrowerLeftAt set
     FS-->>O: Loan banner: name left LendShelf, can still mark it back
-    CF->>FS: delete items, back-watches on them, shelves, reviews, watches, links both ways, custom books, phoneIndex, profile, rateLimits, users doc
+    CF->>FS: delete items, back-watches on them, shelves, reviews, readings, watches, links both ways, custom books, phoneIndex, profile, rateLimits, users doc
     CF->>FS: delete Storage covers/uid
     CF->>CF: delete the Auth user
     CF-->>U: ok, toast Your account and data were deleted
@@ -1004,8 +1005,49 @@ sequenceDiagram
 | Borrower of my book (on the app) | Loan banner "`<owner>` left LendShelf · If you still have `<title>`, message them on WhatsApp if you still have their number." Loans row and push say the same. |
 | Owner of a book I borrowed | Loan banner "`<borrower>` left LendShelf · You can still mark it back or message them on WhatsApp."; borrower row "Left LendShelf". |
 | Someone I requested from, or who requested from me | The request is cancelled and disappears. |
-| People who saved me | My copies and reviews disappear. |
+| People who saved me | My copies, reviews and reading disappear. |
 
 **Edge cases.** If any write fails, the server keeps the Auth user and answers "Some of your data couldn't be deleted. Please try deleting your account again."; every step is safe to repeat and owner-left pushes are only sent for writes that landed. Offline data on the device is not cleared on sign-out (DECISIONS row 29), but the two-phone run (S15) found no data from the previous account on screen.
 
 **Files.** [`(tabs)/me.tsx`](<../../src/app/(app)/(tabs)/me.tsx>), [account.ts (client)](../../src/features/me/account.ts), [delete-account-dialog.tsx](../../src/features/me/delete-account-dialog.tsx), [delete-precheck.ts](../../src/features/me/delete-precheck.ts), [delete-confirmation.ts](../../src/features/me/delete-confirmation.ts), [session.ts](../../src/stores/session.ts); backend `deleteAccount` in [account.ts](../../functions/src/handlers/account.ts), [bulk.ts](../../functions/src/lib/bulk.ts).
+
+---
+
+## F16 Currently reading and Read list
+
+**Who and goal.** Anyone can mark the books they are reading now, keep a list of the books they have finished, and see what friends are reading. Added 28 Nov 2026; not in the original spec.
+
+**Entry points.**
+- Book page: the reading panel under the Wishlist and I own this buttons. Any book that opens a Book page counts, including catalogue results with no copy in the circle.
+- Me › **Reading** (detail "2 now · 14 read").
+- Person page **Reading now** and **Read**; Home **Your circle is reading**.
+
+```mermaid
+flowchart LR
+    N["Not marked"] -->|"I’m reading this"| R["Reading now"]
+    R -->|"Finished it"| F["Read list"]
+    F -.->|"opens"| W["Review screen (skippable)"]
+    R -->|"Stop reading, never finished"| N
+    R -->|"Stop reading, read before"| F
+    F -->|"Read it again"| R
+    F -->|"Remove from Read"| N
+```
+
+**Steps.**
+
+| # | Where | Labels and behaviour |
+|---|---|---|
+| 1 | Book page, not marked | **I’m reading this** (outline). Toast "Added to Reading now". With 5 books already in Reading now: toast "You’re reading 5 books. Finish or stop one first." |
+| 2 | Book page, reading | Card "You’re reading this · Reading since 3 Nov" (plus "read before, finished 3 May" on a re-read), **Finished it** and **Stop reading**. |
+| 3 | Finished it | Toast "Added to your Read list", then the review screen opens (pre-filled when you reviewed it before). |
+| 4 | Book page, finished | Card "You’ve read this · Finished 28 Nov", **Read it again** and **Remove from Read**. |
+| 5 | Me › Reading | **Reading now** ("2 of 5") with "Reading since" dates, **Read** ("14 books") with finish dates, newest first. Empty state "Nothing here yet" with **Find a book**. A card at the bottom: **Show my reading to contacts** switch (on by default). |
+| 6 | Friends | Person page shows **Reading now** and **Read** (3 shown, **Show all n**). Home shows **Your circle is reading** (up to 4 books, "Asha and Ravi are reading it"). The Book page says "Asha is reading this". |
+
+**Edge cases.**
+- One record per person per book (`readings/{workId}_{uid}`). A re-read keeps the last finish date, so the book stays in the Read list while it is being read again; finishing again moves the date.
+- Turning the switch off hides both lists from everyone else at once: the rules read the profile's `shareReading` on every check, so nothing has to be rewritten. The visibility of your copies doesn't affect reading.
+- The 5-book cap is checked on the device only (rules can't count).
+- Deleting an account deletes its reading; Export (JSON) includes it.
+
+**Files.** [ReadingPanel.tsx](../../src/features/reading/ReadingPanel.tsx), [reading.tsx](<../../src/app/(app)/reading.tsx>), [PersonReading.tsx](../../src/features/reading/PersonReading.tsx), [CircleReading.tsx](../../src/features/reading/CircleReading.tsx), [reading.ts](../../src/features/reading/reading.ts), [mutations.ts](../../src/features/reading/mutations.ts), [use-readings.ts](../../src/hooks/use-readings.ts); rules in [firestore.rules](../../firestore.rules).

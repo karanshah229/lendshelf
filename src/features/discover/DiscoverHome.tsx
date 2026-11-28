@@ -38,6 +38,7 @@ import {
   type PersonNew,
 } from '@/features/discover/highlights';
 import { CoverCard } from '@/features/shared/CoverCard';
+import { CircleReading } from '@/features/reading/CircleReading';
 import { PersonAvatar, SectionHeader } from '@/features/shared/ui';
 import { wishlistAvailability, wishlistAvailableNow } from '@/features/wishlist/availability';
 import { AvailabilityLine } from '@/features/wishlist/AvailabilityLine';
@@ -385,6 +386,8 @@ export function DiscoverHome({
           </View>
         </View>
       ) : null}
+
+      <CircleReading uid={uid} nameOf={nameOf} />
 
       {available.length ? (
         <View>

@@ -1,11 +1,11 @@
 /**
  * Pure export assembly: turns the data read for the signed-in user into the file to share.
  * CSV = one row per copy; JSON = profile, collections, copies, their Books, loan history
- * (as owner and as borrower) and my reviews. Builders live in `@/lib/export`.
+ * (as owner and as borrower), my reviews and my reading. Builders live in `@/lib/export`.
  */
 import { toISODate } from '@/lib/dates';
 import { buildCopiesCsv, buildExportJson, serialise, type ExportJson } from '@/lib/export';
-import type { Item, Loan, Profile, Review, Shelf, Work, WithId } from '@/types/model';
+import type { Item, Loan, Profile, Reading, Review, Shelf, Work, WithId } from '@/types/model';
 
 export type ExportFormat = 'csv' | 'json';
 
@@ -18,6 +18,8 @@ export interface ExportData {
   loansAsOwner: readonly WithId<Loan>[];
   loansAsBorrower: readonly WithId<Loan>[];
   reviews: readonly WithId<Review>[];
+  /** Books I'm reading and have read. */
+  readings: readonly WithId<Reading>[];
 }
 
 export interface ExportFile {
@@ -28,7 +30,7 @@ export interface ExportFile {
   content: string;
 }
 
-export type FullExportJson = ExportJson & { works: unknown[] };
+export type FullExportJson = ExportJson & { works: unknown[]; reading: unknown[] };
 
 /** Loans as owner + as borrower, without duplicates. */
 export function mergeLoans(a: readonly WithId<Loan>[], b: readonly WithId<Loan>[]): WithId<Loan>[] {
@@ -42,7 +44,7 @@ export function workIdsOf(items: readonly Pick<Item, 'workId'>[]): string[] {
   return [...new Set(items.map((i) => i.workId).filter(Boolean))].sort();
 }
 
-/** The JSON export with the Books of my copies added (sorted by title). */
+/** The JSON export with the Books of my copies (by title) and my reading (latest started first). */
 export function buildFullExportJson(data: ExportData, exportedAt: Date): FullExportJson {
   const base = buildExportJson({
     uid: data.uid,
@@ -54,7 +56,10 @@ export function buildFullExportJson(data: ExportData, exportedAt: Date): FullExp
     exportedAt,
   });
   const works = [...data.works].sort((a, b) => a.title.localeCompare(b.title)).map(serialise);
-  return { ...base, works };
+  const reading = [...data.readings]
+    .sort((a, b) => (b.startedAt?.toMillis() ?? 0) - (a.startedAt?.toMillis() ?? 0))
+    .map(serialise);
+  return { ...base, works, reading };
 }
 
 export function exportFileName(format: ExportFormat, now: Date): string {
