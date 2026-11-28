@@ -1,0 +1,41 @@
+# Flow 3: a dialog with a long confirm label shows the whole label. On Android a lone centred
+# label could wrap its last word onto a hidden second line ("Yes, it’s" for "Yes, it’s back");
+# the fix makes such a label fill its button.
+#
+# Uses Ravi (+91 90000 00002), who needs a book out with a friend (Loans › Out with friends ›
+# Got it back). Opens the confirm and cancels it: the loan is not touched.
+appId: com.lendshelf.app
+name: Long confirm label
+tags:
+  - dialogs
+  - loans
+---
+- runFlow:
+    file: ../subflows/as-user.yaml
+    env:
+      PHONE: "9000000002"
+      SHOWN: ".*90000 00002"
+      CODE: ${CODE_2}
+- tapOn: "Loans"
+- extendedWaitUntil:
+    visible: "Got it back"
+    timeout: 20000
+    label: "Ravi has a book out with a friend"
+- tapOn: "Got it back"
+- extendedWaitUntil:
+    visible: "Got “.*” back from .*"
+    timeout: 10000
+- assertVisible: "Yes, it’s back"
+# The label fills the dialog button (about 824 px wide on a 1080 px Pixel 6a). A label sized to
+# its own text is about 260 px, which is when Android can drop its last word.
+- assertVisible:
+    text: "Yes, it’s back"
+    width: 824
+    tolerance: 250
+    label: "The label is as wide as its button"
+# Cancel, never confirm.
+- tapOn:
+    text: "Cancel"
+    below: "Yes, it’s back"
+- assertNotVisible: "Yes, it’s back"
+- assertVisible: "Got it back"

@@ -1,6 +1,6 @@
 # Test map
 
-LendShelf has four automated layers: Jest unit tests for the app's pure logic, Vitest unit tests for the backend, Vitest rules tests and Vitest integration tests that run against a private, throwaway Firebase emulator. Everything that needs a screen, a phone or a real Firebase project was tested by hand, recorded in [docs/ux/QA-V1.1.md](../ux/QA-V1.1.md), [docs/ux/QA-ANDROID.md](../ux/QA-ANDROID.md) and the two-phone scenarios in [docs/ux/MULTI-DEVICE-TESTS.md](../ux/MULTI-DEVICE-TESTS.md). This page says how to run the tests, maps each flow (F1 to F15, see [USER-FLOWS.md](USER-FLOWS.md)) to the tests that cover it, and lists what has never been tested.
+LendShelf has five automated layers: Jest unit tests for the app's pure logic, Vitest unit tests for the backend, Vitest rules tests and Vitest integration tests that run against a private, throwaway Firebase emulator, and Maestro UI flows that drive the release app on an Android phone against `lendshelf-dev` ([maestro/README.md](../../maestro/README.md)). The Maestro flows cover four journeys only; everything else that needs a screen, a phone or a real Firebase project was tested by hand, recorded in [docs/ux/QA-V1.1.md](../ux/QA-V1.1.md), [docs/ux/QA-ANDROID.md](../ux/QA-ANDROID.md) and the two-phone scenarios in [docs/ux/MULTI-DEVICE-TESTS.md](../ux/MULTI-DEVICE-TESTS.md). This page says how to run the tests, maps each flow (F1 to F15, see [USER-FLOWS.md](USER-FLOWS.md)) to the tests that cover it, and lists what has never been tested.
 
 Related: [FEATURE-MAP.md](FEATURE-MAP.md) (one row per feature), [ARCHITECTURE.md](ARCHITECTURE.md), [CORE-LOGIC.md](CORE-LOGIC.md).
 
@@ -19,6 +19,9 @@ flowchart LR
         EMU --> RU["rules<br/>Firestore + Storage rules"]
         RU --> IN["integration<br/>callables, triggers, daily job"]
     end
+    subgraph Device["Android phone over ADB"]
+        E2E["npm run e2e<br/>Maestro flows in maestro/flows<br/>release APK, lendshelf-dev"]
+    end
     MAN["Manual QA<br/>web dev build, Android phones,<br/>lendshelf-dev"]
 ```
 
@@ -31,6 +34,7 @@ flowchart LR
 | `npm --prefix functions run test:unit` | Backend unit tests only ([vitest.unit.config.mts](../../functions/vitest.unit.config.mts)) | Node 22 | No |
 | `npm --prefix functions run test:rules` | Rules tests only, emulator with Firestore and Storage | Java 21+ | No |
 | `npm --prefix functions run test:integration` | Build, then integration tests, emulator with Auth, Firestore, Functions and Storage | Java 21+ | No |
+| `npm run e2e -- --device <serial>` | Maestro flows in [maestro/flows](../../maestro/flows) on a connected Android phone: Reading, Wishlist Ask button, Long confirm label, Sign out and back in | Maestro CLI, Java 17+, ADB, the release APK installed, sign-in codes (`CODE_1` … `CODE_5` or `firebase-config/TEST-NUMBERS.md`) | **Dev**: signs in as Ravi and makes small changes it undoes in the same flow |
 
 **The test emulator.** [firebase.test.json](../../firebase.test.json) starts a private Firebase emulator under the project id `demo-lendshelf`, on shifted ports (hub 14400, Auth 19099, Firestore 18080, Functions 15001, Storage 19199) with no UI, so it can't collide with anything else. A `demo-` project never reaches real Google services. The app itself has no emulator mode: it always talks to `lendshelf-dev` or `lendshelf-prod`. [functions/scripts/firebase.mjs](../../functions/scripts/firebase.mjs) finds a Java 21+ runtime (`JAVA_HOME`, `PATH`, Android Studio's JBR, common JDK folders or `LENDSHELF_JAVA_HOME`).
 
@@ -40,6 +44,7 @@ flowchart LR
 - **Backend unit tests** cover pure helpers in [functions/src/lib](../../functions/src/lib) with fixture catalogue responses in [functions/test/fixtures](../../functions/test/fixtures) (no network).
 - **Rules tests** use `@firebase/rules-unit-testing` against [firestore.rules](../../firestore.rules) and [storage.rules](../../storage.rules), including the exact list queries the app runs.
 - **Integration tests** sign in test users through the Auth emulator and call the real callables with the Firebase JS SDK (`httpsCallable`), so triggers run too. Pushes are not sent: in a `demo-` project `sendPush` writes each one to the `_testPushes` collection, which the tests read ([helpers.ts](../../functions/test/integration/helpers.ts)). The daily job is called directly as `runDailyMaintenance`. Files run one at a time (`fileParallelism: false`).
+- **Maestro UI flows** tap through the installed release app by visible text and screen-reader labels. Each flow opens the app as a dev test user ([as-user.yaml](../../maestro/subflows/as-user.yaml) signs out and in when another account is signed in), checks what is on screen and undoes its own changes (reading marks, the wishlist entry, the share switch), so dev data ends as it was. They rely on a little existing dev data: Asha's *Atomic Habits* available and unmarked by Ravi, and a book Ravi has lent out. Flow 3 checks the long dialog label fills its button by width (tuned for the Pixel 6a), because a clipped label still reports its full text. First passing run: 2026-11-28 on the Pixel 6a, CLI 2.12.1.
 - **There is no CI.** The repository has no `.github` workflow; the checks are run by hand.
 
 ### Latest results
@@ -167,14 +172,14 @@ Manual scenario IDs: **S0 to S19** are the two-phone scenarios in [MULTI-DEVICE-
 
 | Area | Why it matters |
 |---|---|
-| Every screen and component (`src/app/**`, `src/features/**/*.tsx`) | No render tests and no component-testing library; screens were checked only by hand. A wrong prop or a broken button wiring is caught by typecheck at best. |
+| Every screen and component (`src/app/**`, `src/features/**/*.tsx`) apart from the four Maestro journeys | No render tests and no component-testing library. Maestro now drives sign-in and sign-out, the Book page reading controls, Me › Reading, Home › From your wishlist and one loan confirm dialog; every other screen was checked only by hand. |
 | Data hooks and Firestore adapters ([src/hooks](../../src/hooks), [src/lib/firebase](../../src/lib/firebase), [api.ts](../../src/lib/api.ts)) | The live listeners and the web/native Firebase split are untested; query shapes are covered only indirectly by the rules tests. |
 | Navigation and the auth gate as a whole ([_layout.tsx](../../src/app/_layout.tsx)) | Only `appGuardRedirect` and the pending-link store are unit-tested. |
 | Client-side multi-step sequences: declining pending requests before hiding or making private, deleting a collection into a private one | Logic for who gets declined is tested; the sequence of calls and what happens if it stops half-way are not. |
 | Add books end to end (camera → queue → batches → Firestore) | Pieces are tested; partial batch failure is not handled or tested. |
 | Export file sharing ([share.ts](../../src/features/export/share.ts)) | Only the file contents are tested. |
 | Real Open Library / Google Books responses | Backend tests use fixtures; the client's catalogue search is tested with stubs. |
-| End-to-end on a device | No Detox, Maestro or Playwright suite. |
+| End-to-end beyond the four Maestro flows | Lending, requests, returns, Add books, contacts sync, collections, export and deep links have no device flow yet; two-phone scenarios need two devices in one run, which the flows don't do. Web has no end-to-end suite (no Playwright). The flows run by hand, not in CI. |
 | CI | No workflow runs any of the checks automatically. |
 
 ### Tested only by hand

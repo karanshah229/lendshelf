@@ -1,0 +1,31 @@
+# Opens the app signed in as one dev test user, switching accounts if someone else is signed in.
+# Params: PHONE (e.g. 9000000002), SHOWN (as Me shows it, e.g. "+91 90000 00002"), CODE.
+appId: com.lendshelf.app
+---
+- launchApp:
+    appId: com.lendshelf.app
+- extendedWaitUntil:
+    visible: "Welcome to LendShelf|Home"
+    timeout: 60000
+- runFlow:
+    when:
+      notVisible: "Welcome to LendShelf"
+    commands:
+      - tapOn: "Me"
+      - extendedWaitUntil:
+          visible: "Edit profile"
+          timeout: 20000
+      - runFlow:
+          when:
+            notVisible: ${SHOWN}
+          file: sign-out.yaml
+- runFlow:
+    when:
+      visible: "Welcome to LendShelf"
+    file: sign-in.yaml
+    env:
+      PHONE: ${PHONE}
+      CODE: ${CODE}
+- tapOn: "Me"
+- assertVisible: ${SHOWN}
+- tapOn: "Home"

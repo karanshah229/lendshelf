@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "test": "jest",
+    "e2e": "node scripts/e2e.mjs",
     "firebase:config": "node scripts/firebase-config.mjs",
     "deploy:dev": "npm --prefix functions run deploy:dev",
     "deploy:dev:dry-run": "npm --prefix functions run deploy:dev:dry-run",

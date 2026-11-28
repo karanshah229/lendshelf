@@ -1,0 +1,20 @@
+# Signs out from Me and waits for the Welcome screen.
+appId: com.lendshelf.app
+---
+- tapOn: "Me"
+- scrollUntilVisible:
+    element: "Sign out"
+    direction: DOWN
+- tapOn: "Sign out"
+- extendedWaitUntil:
+    visible: "Your books and loans stay safe.*"
+    timeout: 10000
+# The dialog's own button sits between its description and Cancel; the page's own "Sign out"
+# is further down, behind the dialog.
+- tapOn:
+    text: "Sign out"
+    below: "Your books and loans stay safe.*"
+    above: "Cancel"
+- extendedWaitUntil:
+    visible: "Welcome to LendShelf"
+    timeout: 30000

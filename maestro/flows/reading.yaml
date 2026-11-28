@@ -1,0 +1,117 @@
+# Flow 1: currently reading (F16) on the Book page, then Me › Reading and its share switch.
+#
+# Uses Ravi (+91 90000 00002) and Asha's "Atomic Habits". Ravi must not have marked that book
+# yet; the flow puts it back that way at the end (Remove from Read) and leaves the share switch
+# as it found it. It opens the review screen but never posts a review.
+appId: com.lendshelf.app
+name: Reading
+tags:
+  - reading
+---
+- runFlow:
+    file: ../subflows/as-user.yaml
+    env:
+      PHONE: "9000000002"
+      SHOWN: ".*90000 00002"
+      CODE: ${CODE_2}
+- runFlow:
+    file: ../subflows/open-book.yaml
+    env:
+      TITLE: "Atomic Habits"
+      AUTHOR: "James Clear"
+
+# Not marked yet (a run that stopped half-way leaves it marked: see maestro/README.md).
+- scrollUntilVisible:
+    element: "I’m reading this"
+    direction: DOWN
+    label: "Ravi has not marked Atomic Habits yet"
+
+# I'm reading this
+- tapOn: "I’m reading this"
+- extendedWaitUntil:
+    visible: "You’re reading this"
+    timeout: 15000
+- assertVisible: "Reading since .*"
+
+# Finished it: moves to the Read list and opens the review screen. Leave without posting.
+- tapOn: "Finished it"
+- extendedWaitUntil:
+    visible: "Write a review"
+    timeout: 15000
+- assertVisible: "Post review"
+- back
+- extendedWaitUntil:
+    visible: "You’ve read this"
+    timeout: 15000
+- assertVisible: "Finished .*"
+
+# Read it again: reading now, and it remembers the earlier finish.
+- tapOn: "Read it again"
+- extendedWaitUntil:
+    visible: "You’re reading this"
+    timeout: 15000
+- assertVisible: "Reading since .*read before, finished .*"
+
+# Stop reading on a re-read goes back to the Read list.
+- tapOn: "Stop reading"
+- extendedWaitUntil:
+    visible: "You’ve read this"
+    timeout: 15000
+- assertVisible: "Remove from Read"
+
+# Me › Reading shows it under Read.
+- back
+- tapOn: "Me"
+- scrollUntilVisible:
+    element: "Reading"
+    direction: DOWN
+- tapOn: "Reading"
+- extendedWaitUntil:
+    visible: "Show my reading to contacts"
+    timeout: 15000
+- assertVisible:
+    text: "Atomic Habits"
+    below: "READ"
+
+# The share switch flips both ways and ends where it started.
+- runFlow:
+    when:
+      visible: "People who have your number saved.*"
+    commands:
+      - tapOn: "Show my reading to contacts, on"
+      - extendedWaitUntil:
+          visible: "Only you can see what you’re reading and have read."
+          timeout: 15000
+      - tapOn: "Show my reading to contacts, off"
+      - extendedWaitUntil:
+          visible: "People who have your number saved.*"
+          timeout: 15000
+- runFlow:
+    when:
+      visible: "Only you can see what you’re reading and have read."
+    commands:
+      - tapOn: "Show my reading to contacts, off"
+      - extendedWaitUntil:
+          visible: "People who have your number saved.*"
+          timeout: 15000
+      - tapOn: "Show my reading to contacts, on"
+      - extendedWaitUntil:
+          visible: "Only you can see what you’re reading and have read."
+          timeout: 15000
+
+# Clean up: open it from the Read list and remove it, so Ravi is back where he started.
+- tapOn:
+    text: "Atomic Habits"
+    below: "READ"
+- extendedWaitUntil:
+    visible: "Remove from Read"
+    timeout: 15000
+- tapOn: "Remove from Read"
+- extendedWaitUntil:
+    visible: "I’m reading this"
+    timeout: 15000
+- back
+- extendedWaitUntil:
+    visible: "Show my reading to contacts"
+    timeout: 15000
+- assertNotVisible: "Atomic Habits"

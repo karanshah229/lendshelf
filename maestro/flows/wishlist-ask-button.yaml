@@ -1,0 +1,84 @@
+# Flow 2: Home › From your wishlist. The Ask button sits beside the book row and doesn't cover
+# it (fixed in fe258c2: a lone label grew and the button took the whole row).
+#
+# Uses Ravi (+91 90000 00002) and Asha's "Atomic Habits", which must be available to borrow.
+# Adds it to Ravi's wishlist only if it isn't there already, and takes it off again at the end.
+appId: com.lendshelf.app
+name: Wishlist Ask button
+tags:
+  - home
+  - wishlist
+---
+- runFlow:
+    file: ../subflows/as-user.yaml
+    env:
+      PHONE: "9000000002"
+      SHOWN: ".*90000 00002"
+      CODE: ${CODE_2}
+- runFlow:
+    file: ../subflows/open-book.yaml
+    env:
+      TITLE: "Atomic Habits"
+      AUTHOR: "James Clear"
+- assertVisible:
+    text: "Available"
+    label: "Asha's copy is available to borrow"
+
+# Put it on the wishlist unless it already is; undo only what this flow did.
+- evalScript: ${output.addedToWishlist = false}
+- runFlow:
+    when:
+      visible: "Wishlist"
+    commands:
+      - tapOn: "Wishlist"
+      - extendedWaitUntil:
+          visible: "On wishlist"
+          timeout: 15000
+      - evalScript: ${output.addedToWishlist = true}
+
+# Back to Home with an empty search.
+- back
+- tapOn: "Does anyone have…?.*"
+- eraseText
+- hideKeyboard
+- scrollUntilVisible:
+    element: "From your wishlist"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      text: "Available from Asha.*"
+      below: "From your wishlist"
+    direction: DOWN
+
+# The row's title and availability are on screen, and Ask is to their right, not over them.
+- assertVisible:
+    text: "Atomic Habits"
+    below: "From your wishlist"
+- assertVisible:
+    text: "Available from Asha.*"
+    below: "From your wishlist"
+- assertVisible:
+    text: "Ask .* for Atomic Habits"
+    rightOf: "Available from Asha.*"
+- assertVisible:
+    text: "Ask .* for Atomic Habits"
+    rightOf:
+      text: "Atomic Habits"
+      below: "From your wishlist"
+
+# Clean up.
+- runFlow:
+    when:
+      true: ${output.addedToWishlist}
+    commands:
+      - tapOn:
+          text: "Available from Asha.*"
+          below: "From your wishlist"
+      - extendedWaitUntil:
+          visible: "On wishlist"
+          timeout: 15000
+      - tapOn: "On wishlist"
+      - extendedWaitUntil:
+          visible: "Wishlist"
+          timeout: 15000
+      - back

@@ -1,0 +1,16 @@
+# Opens a book page from the Home search ("Does anyone have…?").
+# Params: TITLE (what to type) and AUTHOR (shown on the result row; tapped to open it).
+appId: com.lendshelf.app
+---
+- tapOn: "Home"
+- tapOn: "Does anyone have…?.*"
+- eraseText
+- inputText: ${TITLE}
+- extendedWaitUntil:
+    visible: ${AUTHOR}
+    timeout: 20000
+- hideKeyboard
+- tapOn: ${AUTHOR}
+- extendedWaitUntil:
+    visible: "WHO HAS IT"
+    timeout: 20000

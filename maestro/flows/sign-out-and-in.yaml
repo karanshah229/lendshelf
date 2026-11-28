@@ -1,0 +1,22 @@
+# Flow 4: sign out from Me, then sign back in with the same number (Ravi, +91 90000 00002).
+appId: com.lendshelf.app
+name: Sign out and back in
+tags:
+  - auth
+---
+- runFlow:
+    file: ../subflows/as-user.yaml
+    env:
+      PHONE: "9000000002"
+      SHOWN: ".*90000 00002"
+      CODE: ${CODE_2}
+- runFlow: ../subflows/sign-out.yaml
+- assertVisible: "Send code"
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      PHONE: "9000000002"
+      CODE: ${CODE_2}
+- tapOn: "Me"
+- assertVisible: "Ravi Menon"
+- assertVisible: ".*90000 00002"

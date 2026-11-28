@@ -1,0 +1,10 @@
+# Runs every flow in this folder, in this order (`npm run e2e`).
+flows:
+  - "*"
+executionOrder:
+  continueOnFailure: true
+  flowsOrder:
+    - Reading
+    - Wishlist Ask button
+    - Long confirm label
+    - Sign out and back in

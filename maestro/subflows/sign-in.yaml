@@ -1,0 +1,42 @@
+# Signs in from the Welcome screen with a dev test number.
+# Params: PHONE (10 digits, e.g. 9000000002) and CODE (that number's 6-digit code, from -e CODE_n).
+appId: com.lendshelf.app
+---
+- extendedWaitUntil:
+    visible: "Welcome to LendShelf"
+    timeout: 30000
+- tapOn: "Phone number"
+- inputText:
+    text: ${PHONE}
+    label: "Type the test phone number"
+- hideKeyboard
+- tapOn: "Send code"
+- extendedWaitUntil:
+    visible: "Enter the code"
+    timeout: 60000
+- tapOn: "6-digit code"
+# label keeps the code out of Maestro's console output.
+- inputText:
+    text: ${CODE}
+    label: "Type the sign-in code"
+# A full code verifies by itself; tap Verify only if it is still showing.
+- runFlow:
+    when:
+      visible: "Verify"
+    commands:
+      - tapOn:
+          text: "Verify"
+          optional: true
+# First sign-in on this phone: the Contacts step. Skip it (never open the system prompt).
+- extendedWaitUntil:
+    visible: "Find your people|Contacts are off|Home"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Skip for now"
+    commands:
+      - tapOn: "Skip for now"
+- extendedWaitUntil:
+    visible:
+      text: "Home"
+    timeout: 30000
