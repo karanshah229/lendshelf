@@ -42,6 +42,14 @@ export function hasLoanImpact(p: DeletePrecheck): boolean {
   return p.outWithFriends.length + p.lentToNonApp.length + p.borrowing.length + p.openRequests > 0;
 }
 
+/** The sheet's opening line; it points at the loans below only when there are some. */
+export function deleteCheckIntro(p: DeletePrecheck): string {
+  const removed = 'Your books, collections, reviews, wishlist and profile will be removed.';
+  return hasLoanImpact(p)
+    ? `${removed} Here’s what happens to your loans.`
+    : `${removed} You have no open loans or requests.`;
+}
+
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 /** Heading line for the books out with friends. */

@@ -22,6 +22,7 @@ import { useLoanPeople } from '@/features/loans/use-loan-people';
 import { deleteAccountAndSignOut } from '@/features/me/account';
 import { DELETE_CONFIRMATION, isDeleteConfirmed } from '@/features/me/delete-confirmation';
 import {
+  deleteCheckIntro,
   deletePrecheck,
   openRequestsLine,
   outWithFriendsLine,
@@ -88,8 +89,7 @@ export function DeleteAccountButton() {
             <AlertDialogHeader>
               <AlertDialogTitle>Before you delete your account</AlertDialogTitle>
               <AlertDialogDescription>
-                Your books, collections, reviews, wishlist and profile will be removed. Here’s what
-                happens to your loans.
+                {deleteCheckIntro(check)}
               </AlertDialogDescription>
             </AlertDialogHeader>
             {/* pr-2: the web scrollbar must not cover the text (QA B21). */}

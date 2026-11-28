@@ -241,7 +241,7 @@ flowchart LR
 
 **7. When it comes back.** Tap **Got it back** on the row and confirm.
 
-<img src="img/f07-07-got-back-sheet.png" width="260" alt="Dialog: Got Sapiens back from Nikhil? It goes back on your shelf and the loan closes">
+<img src="img/f07-07-got-back-sheet.png" width="260" alt="Dialog: Got Animal Farm back from Asha? It goes back on your shelf and the loan closes, with Yes, it’s back and Cancel">
 
 **8. Back on the shelf.** A message confirms it and the loan moves to **Recent**.
 
@@ -257,15 +257,15 @@ flowchart LR
 
 **2. Search by title.** Pick the right edition from the results.
 
-<img src="img/f08-02-results.jpg" width="260" alt="Search results for The Hobbit with covers, authors and years">
+<img src="img/f08-02-results.jpg" width="260" alt="Search results for The Alchemist with covers, authors and years">
 
 **3. Choose who can see it.** Pick a collection and **Lendable**, **Not lending** or **Hidden**, then tap **Add**.
 
-<img src="img/f08-03-confirm.png" width="260" alt="Add a copy: Collection chips, Who can see it with Lendable, Not lending and Hidden, and an Add button">
+<img src="img/f08-03-confirm.png" width="260" alt="Add a copy of The Alchemist: Collection chips, Who can see it with Lendable, Not lending and Hidden, and Add to Main shelf">
 
 **4. Done.** Add more, or tap **Done**.
 
-<img src="img/f08-04-added.png" width="260" alt="The Hobbit is on your shelf, Added to Main shelf, Done and Add more books">
+<img src="img/f08-04-added.png" width="260" alt="The Alchemist is on your shelf, Added to Main shelf, Done and Add more books">
 
 ## F9 Manage my library
 
@@ -397,7 +397,7 @@ Push needs the EAS project set up (see the README). Until then, the dev build sh
 
 **2. Delete account: check first.** *Tara's phone.* Me › **Delete account** says what will be removed and what happens to your loans, with an export button. Tap **Continue**.
 
-<img src="img/f15-02-delete-precheck.png" width="260" alt="Before you delete your account: what will be removed, Export, Continue and Cancel">
+<img src="img/f15-02-delete-precheck.png" width="260" alt="Before you delete your account: what will be removed, You have no open loans or requests, Export, Continue and Cancel">
 
 **3. Confirm.** Type DELETE and tap **Delete everything**. This can't be undone. Friends who have your books see that you left, and people who lent you a book keep your name and number on their record.
 

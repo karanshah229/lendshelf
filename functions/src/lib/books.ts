@@ -197,6 +197,24 @@ export async function fetchOpenLibraryWork(workKey: string, fetchImpl: FetchLike
   };
 }
 
+/**
+ * The cover Open Library's search shows for a work. Some work records have no
+ * `covers` even though search shows one (from one of the work's editions), so a
+ * book picked from search would otherwise be saved without the cover the user
+ * just saw. Best effort: null on any failure.
+ */
+export async function fetchOpenLibrarySearchCover(workKey: string, fetchImpl: FetchLike): Promise<string | null> {
+  const q = encodeURIComponent(`key:"/works/${workKey}"`);
+  try {
+    const json = await getJson(fetchImpl, `${OL_BASE}/search.json?q=${q}&fields=key,cover_i&limit=1`);
+    const docs = isObj(json) && Array.isArray(json.docs) ? json.docs : [];
+    const doc = docs[0];
+    return isObj(doc) && str(doc.key) === `/works/${workKey}` ? olCoverUrl(doc.cover_i) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---- Google Books -----------------------------------------------------------
 
 export interface GbVolume {
@@ -294,6 +312,8 @@ export interface BookStore {
   getWork(workId: string): Promise<WorkData | null>;
   /** Create the work unless it already exists; returns the stored version. */
   createWork(workId: string, work: WorkData): Promise<WorkData>;
+  /** Set the cover of a stored work that has none; returns the stored version. */
+  fillWorkCover(workId: string, coverUrl: string): Promise<WorkData | null>;
 }
 
 export type ResolveBookInput =
@@ -458,7 +478,12 @@ export async function resolveBook(
         throw err;
       }
       if (!fetched) throw new HttpsError("not-found", `Open Library has no work ${key}.`);
+      if (!fetched.coverUrl) fetched.coverUrl = await fetchOpenLibrarySearchCover(key, fetchImpl);
       work = await store.createWork(workId, fetched);
+    } else if (!work.coverUrl) {
+      // Saved earlier without a cover: fill it in now if search has one.
+      const cover = await fetchOpenLibrarySearchCover(key, fetchImpl);
+      if (cover) work = (await store.fillWorkCover(workId, cover)) ?? work;
     }
     const edition = isbn
       ? await editionForIsbn(isbn, workId, work, store, async () => {

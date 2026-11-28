@@ -1,6 +1,7 @@
-import { PressableLabel, TextClassContext } from '@/components/ui/text';
+import { PressableLabel, Text, TextClassContext } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { cva, type VariantProps } from 'class-variance-authority';
+import * as React from 'react';
 import { Platform, Pressable, type Insets } from 'react-native';
 
 const buttonVariants = cva(
@@ -96,6 +97,28 @@ const buttonTextVariants = cva(
   }
 );
 
+/**
+ * Label classes for a pressable. A label that is the pressable's only content also grows to fill
+ * it: on Android a centred label can be laid out a fraction of a pixel narrower than it measured,
+ * so its last word wraps onto a second line that has no room and vanishes ("Yes, it’s" for
+ * "Yes, it’s back"). Filling the width leaves room to spare; `text-center` keeps it centred.
+ * Labels next to an icon keep their own width so the icon stays beside the text.
+ */
+function buttonLabelClass(
+  variant: VariantProps<typeof buttonTextVariants>['variant'],
+  size: VariantProps<typeof buttonTextVariants>['size'],
+  children: unknown
+): string {
+  return cn(buttonTextVariants({ variant, size }), isLoneLabel(children) && 'grow');
+}
+
+/** True when the only child (ignoring null and false) is a `Text`. */
+function isLoneLabel(children: unknown): boolean {
+  if (typeof children === 'function') return false;
+  const kids = React.Children.toArray(children as React.ReactNode);
+  return kids.length === 1 && React.isValidElement(kids[0]) && kids[0].type === Text;
+}
+
 type ButtonProps = React.ComponentProps<typeof Pressable> &
   React.RefAttributes<typeof Pressable> &
   VariantProps<typeof buttonVariants>;
@@ -113,7 +136,7 @@ const HIT_SLOP: Record<NonNullable<ButtonProps['size']>, Insets> = {
 
 function Button({ className, variant, size, ...props }: ButtonProps) {
   return (
-    <TextClassContext.Provider value={buttonTextVariants({ variant, size })}>
+    <TextClassContext.Provider value={buttonLabelClass(variant, size, props.children)}>
       <PressableLabel>
         <Pressable
           className={cn(
@@ -130,5 +153,5 @@ function Button({ className, variant, size, ...props }: ButtonProps) {
   );
 }
 
-export { Button, buttonTextVariants, buttonVariants };
+export { Button, buttonLabelClass, buttonTextVariants, buttonVariants };
 export type { ButtonProps };

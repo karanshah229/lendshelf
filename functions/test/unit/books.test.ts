@@ -55,6 +55,12 @@ function memoryStore() {
       if (!works.has(id)) works.set(id, w);
       return works.get(id) as WorkData;
     },
+    fillWorkCover: async (id, coverUrl) => {
+      const w = works.get(id);
+      if (!w) return null;
+      if (!w.coverUrl) works.set(id, { ...w, coverUrl });
+      return works.get(id) as WorkData;
+    },
   };
   return { store, isbns, works };
 }
@@ -307,6 +313,41 @@ describe("resolveBook", () => {
     );
     expect(r.edition.publisher).toBe("Mariner Books");
     expect(mem.isbns.get("9780547928227")?.workId).toBe("ol_OL27482W");
+  });
+
+  describe("a work record without a cover uses the cover search shows", () => {
+    const KEY = "OL42974242W";
+    const searchUrl = `${OL}/search.json?q=${encodeURIComponent(`key:"/works/${KEY}"`)}&fields=key,cover_i&limit=1`;
+    const routes = (search: Route): Record<string, Route> => ({
+      [`${OL}/works/${KEY}.json`]: { status: 200, body: { title: "The Alchemist", key: `/works/${KEY}` } },
+      [searchUrl]: search,
+    });
+    const found: Route = { status: 200, body: { docs: [{ key: `/works/${KEY}`, cover_i: 15075893 }] } };
+    const COVER = "https://covers.openlibrary.org/b/id/15075893-L.jpg";
+
+    it("on a new work", async () => {
+      const r = await resolveBook({ olWorkKey: KEY }, { store: mem.store, fetch: fakeFetch(routes(found)).fn });
+      expect(r.work.coverUrl).toBe(COVER);
+      expect(r.edition.coverUrl).toBe(COVER);
+      expect(mem.works.get(`ol_${KEY}`)?.coverUrl).toBe(COVER);
+    });
+
+    it("on a work saved earlier without one", async () => {
+      await resolveBook({ olWorkKey: KEY }, { store: mem.store, fetch: fakeFetch(routes({ status: 503 })).fn });
+      expect(mem.works.get(`ol_${KEY}`)?.coverUrl).toBeNull();
+      const r = await resolveBook({ olWorkKey: KEY }, { store: mem.store, fetch: fakeFetch(routes(found)).fn });
+      expect(r.edition.coverUrl).toBe(COVER);
+      expect(mem.works.get(`ol_${KEY}`)?.coverUrl).toBe(COVER);
+    });
+
+    it("ignores a search hit for another work, and a search failure", async () => {
+      const other: Route = { status: 200, body: { docs: [{ key: "/works/OL1W", cover_i: 1 }] } };
+      const r = await resolveBook({ olWorkKey: KEY }, { store: mem.store, fetch: fakeFetch(routes(other)).fn });
+      expect(r.edition.coverUrl).toBeNull();
+      const down = fakeFetch({ ...routes(new Error("ECONNRESET")) });
+      const r2 = await resolveBook({ olWorkKey: KEY }, { store: mem.store, fetch: down.fn });
+      expect(r2.workId).toBe(`ol_${KEY}`);
+    });
   });
 
   it("unknown olWorkKey is not-found; malformed is invalid-argument", async () => {

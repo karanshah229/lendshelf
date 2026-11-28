@@ -1,8 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { buttonTextVariants } from '@/components/ui/button';
-import { labelPointerEvents } from '@/components/ui/text';
+import * as React from 'react';
+import { View } from 'react-native';
+
+import { buttonLabelClass, buttonTextVariants } from '@/components/ui/button';
+import { labelPointerEvents, Text } from '@/components/ui/text';
 
 // The primitives ship untranspiled JSX; the label logic doesn't need them.
 jest.mock('@rn-primitives/slot', () => ({ Slot: () => null }));
@@ -57,5 +60,22 @@ describe('button labels pass touches through (QA-ANDROID bug 2)', () => {
     };
     walk(path.join(__dirname, '..', '..', '..'));
     expect(offenders).toEqual([]);
+  });
+});
+
+// QA (user guide run): "Yes, it’s back" showed as "Yes, it’s" and "Add to Main shelf" as
+// "Add to Main" on Android. A label that is the button's only content fills the button.
+describe('lone button labels fill the button', () => {
+  const label = React.createElement(Text, null, 'Yes, it’s back');
+  const icon = React.createElement(View);
+
+  it('grows a label that is the only child, ignoring null and false', () => {
+    expect(buttonLabelClass('default', 'default', label).split(/\s+/)).toContain('grow');
+    expect(buttonLabelClass('default', 'lg', [null, label, false]).split(/\s+/)).toContain('grow');
+  });
+
+  it('leaves a label next to an icon at its own width', () => {
+    expect(buttonLabelClass('default', 'default', [icon, label]).split(/\s+/)).not.toContain('grow');
+    expect(buttonLabelClass('default', 'default', () => label).split(/\s+/)).not.toContain('grow');
   });
 });

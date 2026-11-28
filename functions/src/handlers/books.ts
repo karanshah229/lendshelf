@@ -43,6 +43,17 @@ export function firestoreBookStore(db: Firestore, now: () => Date): BookStore {
         return work;
       });
     },
+    async fillWorkCover(workId, coverUrl) {
+      const ref = db.collection(COL.works).doc(workId);
+      return db.runTransaction(async (tx) => {
+        const s = await tx.get(ref);
+        if (!s.exists) return null;
+        const stored = stripTimestamps(s.data() as WorkDoc);
+        if (stored.coverUrl) return stored;
+        tx.update(ref, { coverUrl, updatedAt: ts(now()) });
+        return { ...stored, coverUrl };
+      });
+    },
   };
 }
 

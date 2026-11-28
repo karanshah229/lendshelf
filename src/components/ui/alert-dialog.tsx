@@ -1,4 +1,4 @@
-import { buttonTextVariants, buttonVariants } from '@/components/ui/button';
+import { buttonLabelClass, buttonVariants } from '@/components/ui/button';
 import { DialogKeyboardFrame } from '@/components/ui/dialog-keyboard-frame';
 import { NativeOnlyAnimatedView } from '@/components/ui/native-only-animated-view';
 import { PressableLabel, TextClassContext } from '@/components/ui/text';
@@ -130,7 +130,7 @@ function AlertDialogAction({
   variant?: AlertDialogButtonVariant;
 }) {
   return (
-    <TextClassContext.Provider value={buttonTextVariants({ variant })}>
+    <TextClassContext.Provider value={buttonLabelClass(variant, undefined, props.children)}>
       <PressableLabel>
         <AlertDialogPrimitive.Action
           className={cn(buttonVariants({ variant }), props.disabled && 'opacity-50', className)}
@@ -149,7 +149,7 @@ function AlertDialogCancel({
   variant?: AlertDialogButtonVariant;
 }) {
   return (
-    <TextClassContext.Provider value={buttonTextVariants({ variant })}>
+    <TextClassContext.Provider value={buttonLabelClass(variant, undefined, props.children)}>
       <PressableLabel>
         <AlertDialogPrimitive.Cancel
           className={cn(buttonVariants({ variant }), props.disabled && 'opacity-50', className)}

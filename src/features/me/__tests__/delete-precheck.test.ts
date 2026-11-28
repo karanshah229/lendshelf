@@ -1,5 +1,6 @@
 import { asBorrower, loan } from '@/features/loans/__fixtures__/loans';
 import {
+  deleteCheckIntro,
   deletePrecheck,
   hasLoanImpact,
   openRequestsLine,
@@ -34,5 +35,13 @@ describe('deletePrecheck', () => {
     expect(outWithFriendsLine(2)).toMatch(/^2 books are out with friends\./);
     expect(openRequestsLine(1)).toBe('Your 1 open request will be cancelled.');
     expect(openRequestsLine(2)).toBe('Your 2 open requests will be cancelled.');
+  });
+
+  it('points at the loans list only when there is one', () => {
+    const some = deletePrecheck('me', [loan({ status: 'active' }, 'a')], []);
+    expect(deleteCheckIntro(some)).toMatch(/Here’s what happens to your loans\.$/);
+    const none = deletePrecheck('me', [loan({ status: 'returned' }, 'r')], []);
+    expect(deleteCheckIntro(none)).toMatch(/You have no open loans or requests\.$/);
+    expect(deleteCheckIntro(none)).not.toMatch(/what happens/);
   });
 });
